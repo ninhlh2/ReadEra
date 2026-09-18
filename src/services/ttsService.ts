@@ -1,11 +1,18 @@
-import { Capacitor } from '@capacitor/core';
+import { Capacitor, registerPlugin } from '@capacitor/core';
 import { TextToSpeech } from '@capacitor-community/text-to-speech';
+
+interface AppHelperPlugin {
+  openTtsSettings(): Promise<void>;
+}
+const AppHelper = registerPlugin<AppHelperPlugin>('AppHelper');
 
 export interface TtsVoice {
   id: string;
   name: string;
+  rawName?: string;
   lang: string;
   isVietnamese: boolean;
+  engine?: string;
 }
 
 export type SleepTimerMode =
@@ -92,8 +99,77 @@ export function splitIntoSentences(rawText: string): string[] {
 }
 
 /**
+ * Formats raw voice names and identifiers into clear, recognizable labels with engine tags.
+ */
+export function formatVoiceLabel(
+  rawName: string,
+  voiceURI?: string,
+  lang?: string,
+  index?: number
+): { name: string; engine?: string } {
+  const uri = (voiceURI || '').toLowerCase();
+  const nameLower = (rawName || '').toLowerCase();
+  const isVi = (lang || '').toLowerCase().startsWith('vi') || uri.includes('vi-vn') || uri.includes('vie');
+
+  let engine = 'Hệ thống';
+  if (uri.includes('samsung') || uri.includes('smt') || nameLower.includes('samsung')) {
+    engine = 'Samsung Engine';
+  } else if (uri.includes('google') || nameLower.includes('google') || uri.includes('vic') || uri.includes('vie') || uri.includes('gft')) {
+    engine = 'Google TTS';
+  } else if (uri.includes('microsoft') || nameLower.includes('microsoft')) {
+    engine = 'Microsoft';
+  } else if (uri.includes('apple') || nameLower.includes('siri')) {
+    engine = 'Apple Siri';
+  }
+
+  let gender = '';
+  if (
+    uri.includes('-f00') ||
+    uri.includes('female') ||
+    uri.includes('-f-') ||
+    nameLower.includes('female') ||
+    nameLower.includes('nữ') ||
+    nameLower.includes('mai') ||
+    nameLower.includes('zira')
+  ) {
+    gender = 'Nữ';
+  } else if (
+    uri.includes('-m00') ||
+    uri.includes('male') ||
+    uri.includes('-m-') ||
+    nameLower.includes('male') ||
+    nameLower.includes('nam') ||
+    nameLower.includes('david')
+  ) {
+    gender = 'Nam';
+  }
+
+  let quality = '';
+  if (uri.includes('network') || uri.includes('online')) {
+    quality = 'Mạng tự nhiên';
+  } else if (uri.includes('local') || uri.includes('offline') || uri.includes('embedded')) {
+    quality = 'Ngoại tuyến';
+  }
+
+  if (isVi) {
+    const parts: string[] = ['🇻🇳 Tiếng Việt'];
+    if (gender) parts.push(`Giọng ${gender}`);
+    else if (typeof index === 'number') parts.push(`Giọng ${index + 1}`);
+
+    if (quality) parts.push(quality);
+    parts.push(`(${engine})`);
+    return { name: parts.join(' - '), engine };
+  }
+
+  // Non-Vietnamese
+  const langTag = lang ? `[${lang}]` : '';
+  const finalName = `${rawName || 'Voice'} ${langTag} (${engine})`.trim();
+  return { name: finalName, engine };
+}
+
+/**
  * Background audio keeper: Keeps the audio hardware pipeline and CPU active
- * when the Android screen is turned off or app is minimized.
+ * when the Android screen is turned off or app is minimized, maintaining Lock Screen presence.
  */
 class BackgroundAudioKeeper {
   private audioEl: HTMLAudioElement | null = null;
@@ -103,11 +179,11 @@ class BackgroundAudioKeeper {
     try {
       if (!this.audioEl && typeof Audio !== 'undefined') {
         this.audioEl = new Audio();
-        // 1-second silent WAV in base64
+        // Silent WAV track in base64
         this.audioEl.src =
           'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
         this.audioEl.loop = true;
-        this.audioEl.volume = 0.01;
+        this.audioEl.volume = 0.05;
       }
       if (this.audioEl) {
         this.audioEl.play().catch(() => {});
@@ -182,14 +258,22 @@ class TtsServiceManager {
       try {
         const res = await TextToSpeech.getSupportedVoices();
         if (res && res.voices && res.voices.length > 0) {
-          const list: TtsVoice[] = res.voices.map((v, index) => ({
-            id: index.toString(),
-            name: v.name,
-            lang: v.lang,
-            isVietnamese: v.lang.toLowerCase().startsWith('vi'),
-          }));
+          const list: TtsVoice[] = res.voices.map((v, index) => {
+            const formatted = formatVoiceLabel(v.name, v.voiceURI, v.lang, index);
+            return {
+              id: index.toString(),
+              name: formatted.name,
+              rawName: v.name,
+              lang: v.lang,
+              isVietnamese: Boolean(
+                v.lang.toLowerCase().startsWith('vi') ||
+                (v.voiceURI && v.voiceURI.toLowerCase().includes('vi'))
+              ),
+              engine: formatted.engine,
+            };
+          });
 
-          // Sort Vietnamese first
+          // Sort Vietnamese first, then by engine name
           return list.sort((a, b) => {
             if (a.isVietnamese && !b.isVietnamese) return -1;
             if (!a.isVietnamese && b.isVietnamese) return 1;
@@ -221,12 +305,17 @@ class TtsServiceManager {
         voices = getWebVoices();
       }
 
-      const list: TtsVoice[] = voices.map((v) => ({
-        id: v.voiceURI,
-        name: `${v.name} (${v.lang})`,
-        lang: v.lang,
-        isVietnamese: v.lang.toLowerCase().startsWith('vi'),
-      }));
+      const list: TtsVoice[] = voices.map((v, index) => {
+        const formatted = formatVoiceLabel(v.name, v.voiceURI, v.lang, index);
+        return {
+          id: v.voiceURI,
+          name: formatted.name,
+          rawName: v.name,
+          lang: v.lang,
+          isVietnamese: v.lang.toLowerCase().startsWith('vi'),
+          engine: formatted.engine,
+        };
+      });
 
       return list.sort((a, b) => {
         if (a.isVietnamese && !b.isVietnamese) return -1;
@@ -236,6 +325,24 @@ class TtsServiceManager {
     }
 
     return [];
+  }
+
+  // --- Open Android/System TTS Settings (Samsung, Google, etc.) ---
+  public async openTtsSettings(): Promise<void> {
+    if (this.isNative) {
+      try {
+        await AppHelper.openTtsSettings();
+        return;
+      } catch (err) {
+        console.warn('Lỗi AppHelper.openTtsSettings, fallback TextToSpeech.openInstall:', err);
+        try {
+          await TextToSpeech.openInstall();
+          return;
+        } catch {}
+      }
+    } else {
+      alert('Tùy chỉnh Engine (Samsung, Google...) chỉ khả dụng trên thiết bị Android / iOS.');
+    }
   }
 
   // --- Metadata & MediaSession ---
@@ -250,6 +357,8 @@ class TtsServiceManager {
       navigator.mediaSession.setActionHandler('pause', () => this.pause());
       navigator.mediaSession.setActionHandler('previoustrack', () => this.prevSentence());
       navigator.mediaSession.setActionHandler('nexttrack', () => this.nextSentence());
+      navigator.mediaSession.setActionHandler('seekbackward', () => this.prevSentence());
+      navigator.mediaSession.setActionHandler('seekforward', () => this.nextSentence());
       navigator.mediaSession.setActionHandler('stop', () => this.stop());
     }
   }
@@ -260,15 +369,30 @@ class TtsServiceManager {
         title: this.metadata.title || 'ReadEra TTS',
         artist: this.metadata.author || 'ReadEra Reader',
         album: `Câu ${this.currentIndex + 1} / ${this.sentences.length || 1}`,
-        artwork: this.metadata.coverUrl
-          ? [{ src: this.metadata.coverUrl, sizes: '512x512', type: 'image/png' }]
-          : undefined,
+        artwork: [
+          {
+            src: this.metadata.coverUrl || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 24 24" fill="%236366f1"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/></svg>',
+            sizes: '512x512',
+            type: 'image/png',
+          },
+        ],
       });
       navigator.mediaSession.playbackState = this.isPlaying
         ? this.isPaused
           ? 'paused'
           : 'playing'
         : 'none';
+
+      // Lock screen progress scrubber state
+      if ('setPositionState' in navigator.mediaSession && this.sentences.length > 0) {
+        try {
+          navigator.mediaSession.setPositionState({
+            duration: Math.max(1, this.sentences.length),
+            playbackRate: 1.0,
+            position: Math.min(this.currentIndex + 1, Math.max(1, this.sentences.length)),
+          });
+        } catch {}
+      }
     }
   }
 

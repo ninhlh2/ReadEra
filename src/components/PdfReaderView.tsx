@@ -427,7 +427,7 @@ export const PdfReaderView: React.FC<PdfReaderViewProps> = ({
 
       {/* Bottom Control Bar */}
       <footer className={`reader-bottom-bar ${!showBars ? 'hidden' : ''}`}>
-        <div className="reader-scrubber-row">
+        <div className="reader-scrubber-row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
           <button
             className="btn-icon"
             onClick={prevPage}
@@ -437,15 +437,25 @@ export const PdfReaderView: React.FC<PdfReaderViewProps> = ({
             <ChevronLeft size={22} />
           </button>
 
-          <div className="reader-slider-container">
-            <input
-              type="range"
-              min="1"
-              max={totalPages}
-              value={currentPage}
-              onChange={(e) => goToPage(Number(e.target.value))}
-              className="reader-progress-slider"
-            />
+          {/* Clean percentage progress display without draggable slider */}
+          <div
+            className="pdf-page-badge-wrap"
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '4px 18px',
+              borderRadius: 20,
+              background: 'rgba(128, 128, 128, 0.12)',
+            }}
+          >
+            <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
+              {Math.round((currentPage / totalPages) * 100)}%
+            </span>
+            <span style={{ fontSize: 10, color: 'var(--text-secondary)', marginTop: -1 }}>
+              Trang {currentPage} / {totalPages}
+            </span>
           </div>
 
           <button

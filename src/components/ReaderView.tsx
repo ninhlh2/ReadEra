@@ -546,15 +546,6 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
     }
   };
 
-  const handleSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = Number(e.target.value);
-    setProgressPercentage(val);
-    if (bookRef.current && renditionRef.current && bookRef.current.locations.length()) {
-      const cfi = bookRef.current.locations.cfiFromPercentage(val / 100);
-      renditionRef.current.display(cfi);
-    }
-  };
-
   // Bookmark current position
   const handleToggleBookmarkCurrent = async () => {
     if (!currentCfi) return;
@@ -1155,48 +1146,82 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
 
       {/* Bottom Floating Control Bar */}
       <footer className={`reader-bottom-bar ${!showBars ? 'hidden' : ''}`}>
-        <div className="reader-slider-row">
-          <button
-            className="btn-icon"
-            style={{ width: 28, height: 28 }}
-            onClick={handlePrevChapter}
-            title="Chương trước"
-          >
-            <SkipBack size={15} />
-          </button>
-
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
-            <input
-              type="range"
-              min="0"
-              max="100"
-              value={progressPercentage}
-              onChange={handleSliderChange}
-              className="reader-slider"
-            />
+        <div className="reader-slider-row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <button
+              className="btn-icon"
+              style={{ width: 32, height: 32 }}
+              onClick={handlePrevChapter}
+              title="Chương trước"
+            >
+              <SkipBack size={16} />
+            </button>
+            <button
+              className="btn-icon"
+              style={{ width: 32, height: 32 }}
+              onClick={handlePrevPage}
+              title="Trang trước"
+            >
+              <ChevronLeft size={18} />
+            </button>
           </div>
 
-          <button
-            className="btn-icon"
-            style={{ width: 28, height: 28 }}
-            onClick={handleNextChapter}
-            title="Chương kế tiếp"
+          {/* Clean percentage progress display (No draggable slider) */}
+          <div
+            className="reader-progress-badge-wrap"
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '4px 18px',
+              borderRadius: 20,
+              background: 'rgba(128, 128, 128, 0.12)',
+            }}
           >
-            <SkipForward size={15} />
-          </button>
+            <span
+              style={{
+                fontSize: 14,
+                fontWeight: 700,
+                color: 'var(--text-primary)',
+                letterSpacing: '0.02em',
+              }}
+            >
+              {progressPercentage}%
+            </span>
+            <span
+              style={{
+                fontSize: 10,
+                opacity: 0.75,
+                color: 'var(--text-secondary)',
+                marginTop: -1,
+              }}
+            >
+              Đã đọc
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <button
+              className="btn-icon"
+              style={{ width: 32, height: 32 }}
+              onClick={handleNextPage}
+              title="Trang tiếp"
+            >
+              <ChevronRight size={18} />
+            </button>
+            <button
+              className="btn-icon"
+              style={{ width: 32, height: 32 }}
+              onClick={handleNextChapter}
+              title="Chương kế tiếp"
+            >
+              <SkipForward size={16} />
+            </button>
+          </div>
         </div>
 
-        <div className="reader-bottom-meta">
-          <div className="reader-page-nav">
-            <button className="btn-icon" style={{ width: 28, height: 28 }} onClick={handlePrevPage}>
-              <ChevronLeft size={16} />
-            </button>
-            <button className="btn-icon" style={{ width: 28, height: 28 }} onClick={handleNextPage}>
-              <ChevronRight size={16} />
-            </button>
-          </div>
-
-          <span className="reader-progress-meta-text">{progressPercentage}% hoàn thành</span>
+        <div className="reader-bottom-meta" style={{ justifyContent: 'center' }}>
           <span className="reader-book-title-meta" title={book.title}>
             {book.title}
           </span>

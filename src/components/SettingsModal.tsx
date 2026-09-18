@@ -139,88 +139,101 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </button>
         </div>
 
-        <div className="drawer-content" style={{ padding: '16px 20px' }}>
-          {/* ================================================================
-              CHẾ ĐỘ XEM TRƯỚC TRỰC QUAN (LIVE PREVIEW BOX)
-              ================================================================ */}
-          <div style={{ marginBottom: 24 }}>
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                marginBottom: 8,
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Eye size={15} color="var(--color-primary)" />
-                <span className="settings-label" style={{ margin: 0 }}>
-                  Xem trước trực quan
-                </span>
-              </div>
-              <span
-                style={{
-                  fontSize: 11,
-                  padding: '2px 8px',
-                  borderRadius: 12,
-                  background: 'var(--color-primary-light)',
-                  color: '#818cf8',
-                  fontWeight: 600,
-                }}
-              >
-                {currentTheme.label} • {currentFont.label} • {settings.fontSize}px
+        {/* ================================================================
+            CHẾ ĐỘ XEM TRƯỚC CỐ ĐỊNH (STICKY LIVE PREVIEW)
+            ================================================================ */}
+        <div
+          className="settings-preview-sticky-wrap"
+          style={{
+            position: 'sticky',
+            top: 0,
+            zIndex: 20,
+            padding: '12px 18px 14px 18px',
+            background: 'var(--bg-card, #1e293b)',
+            borderBottom: '1px solid var(--border-color, rgba(128, 128, 128, 0.2))',
+            boxShadow: '0 4px 16px rgba(0, 0, 0, 0.25)',
+            backdropFilter: 'blur(16px)',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginBottom: 8,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Eye size={15} color="var(--color-primary)" />
+              <span className="settings-label" style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>
+                Xem trước trực quan
               </span>
             </div>
-
-            {/* Khung mô phỏng trang sách thực tế */}
-            <div
+            <span
               style={{
-                backgroundColor: currentTheme.bg,
-                color: currentTheme.text,
-                border: `1px solid ${currentTheme.border}`,
-                borderRadius: 'var(--radius-md)',
-                padding: `${Math.max(14, Math.min(24, settings.marginHorizontal / 2))}px`,
-                fontFamily: currentFont.fontFamilyCSS,
-                fontSize: `${Math.max(13, Math.min(20, settings.fontSize))}px`,
-                lineHeight: settings.lineHeight,
-                textAlign: settings.textAlign,
-                boxShadow: '0 6px 18px rgba(0,0,0,0.25)',
-                transition: 'all 0.2s ease',
-                position: 'relative',
-                overflow: 'hidden',
+                fontSize: 11,
+                padding: '2px 8px',
+                borderRadius: 12,
+                background: 'var(--color-primary-light, rgba(99, 102, 241, 0.15))',
+                color: 'var(--color-primary, #818cf8)',
+                fontWeight: 600,
               }}
             >
-              <h5
-                style={{
-                  fontSize: '1.15em',
-                  fontWeight: 700,
-                  marginBottom: '0.4em',
-                  textAlign: 'center',
-                  color: currentTheme.text,
-                  opacity: 0.95,
-                  letterSpacing: '-0.3px',
-                }}
-              >
-                Hoàng Tử Bé
-              </h5>
-              <p
-                style={{
-                  fontSize: '0.9em',
-                  fontStyle: 'italic',
-                  marginBottom: '0.6em',
-                  color: currentTheme.text,
-                  opacity: 0.85,
-                  borderLeft: '3px solid var(--color-primary)',
-                  paddingLeft: '10px',
-                }}
-              >
-                “Người ta chỉ nhìn thấy thật rõ ràng bằng trái tim. Điều cốt lõi thì vô hình trong mắt trần.”
-              </p>
-              <p style={{ margin: 0, color: currentTheme.text, opacity: 0.9 }}>
-                Tất cả những người lớn đều từng là trẻ con... nhưng rất ít người trong số họ nhớ được điều đó.
-              </p>
-            </div>
+              {currentTheme.label} • {currentFont.label} • {settings.fontSize}px
+            </span>
           </div>
+
+          {/* Khung mô phỏng trang sách thực tế */}
+          <div
+            style={{
+              backgroundColor: currentTheme.bg,
+              color: currentTheme.text,
+              border: `1px solid ${currentTheme.border}`,
+              borderRadius: 'var(--radius-md, 10px)',
+              padding: `${Math.max(10, Math.min(16, settings.marginHorizontal / 2.5))}px`,
+              fontFamily: currentFont.fontFamilyCSS,
+              fontSize: `${Math.max(12, Math.min(18, settings.fontSize * 0.95))}px`,
+              lineHeight: settings.lineHeight,
+              textAlign: settings.textAlign,
+              maxHeight: 140,
+              overflowY: 'hidden',
+              boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
+              transition: 'background-color 0.2s ease, color 0.2s ease',
+              position: 'relative',
+            }}
+          >
+            <h5
+              style={{
+                fontSize: '1.1em',
+                fontWeight: 700,
+                marginBottom: '0.3em',
+                textAlign: 'center',
+                color: currentTheme.text,
+                opacity: 0.95,
+              }}
+            >
+              Hoàng Tử Bé
+            </h5>
+            <p
+              style={{
+                fontSize: '0.9em',
+                fontStyle: 'italic',
+                marginBottom: '0.4em',
+                color: currentTheme.text,
+                opacity: 0.85,
+                borderLeft: '3px solid var(--color-primary)',
+                paddingLeft: '8px',
+              }}
+            >
+              “Người ta chỉ nhìn thấy thật rõ ràng bằng trái tim. Điều cốt lõi thì vô hình trong mắt trần.”
+            </p>
+            <p style={{ margin: 0, color: currentTheme.text, opacity: 0.9, fontSize: '0.9em' }}>
+              Tất cả những người lớn đều từng là trẻ con...
+            </p>
+          </div>
+        </div>
+
+        <div className="drawer-content" style={{ padding: '16px 20px' }}>
 
           {/* ================================================================
               CHỌN BỘ MÀU (THEMES)

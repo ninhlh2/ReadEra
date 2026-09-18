@@ -318,11 +318,34 @@ export const TtsPlayer: React.FC<TtsPlayerProps> = ({
                     )}
                     {voices.map((v) => (
                       <option key={v.id} value={v.id}>
-                        {v.isVietnamese ? `⭐ ${v.name}` : v.name}
+                        {v.isVietnamese ? (v.name.startsWith('⭐') ? v.name : `⭐ ${v.name}`) : v.name}
                       </option>
                     ))}
                   </select>
                   <ChevronDown size={16} className="select-arrow" />
+                </div>
+
+                <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end' }}>
+                  <button
+                    type="button"
+                    onClick={() => ttsService.openTtsSettings()}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: 'var(--color-primary, #6366f1)',
+                      fontSize: 12,
+                      fontWeight: 500,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      padding: '4px 0',
+                    }}
+                    title="Mở cài đặt giọng đọc trên máy để kích hoạt Samsung Engine hoặc tải thêm giọng"
+                  >
+                    <Settings size={13} />
+                    <span>Cài đặt giọng đọc hệ thống (Samsung / Google)</span>
+                  </button>
                 </div>
               </div>
 
