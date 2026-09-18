@@ -101,6 +101,8 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
   const currentLocationRef = useRef<any>(null);
   const currentTtsCfiRef = useRef<string | null>(null);
   const currentTtsSectionHrefRef = useRef<string | null>(null);
+  const currentReadingAnchorRef = useRef<string>('');
+  const prevSettingsRef = useRef<ReadingSettings>(initialSettings);
 
   // Load bookmarks & highlights on start
   useEffect(() => {
@@ -443,6 +445,14 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
         const title = findChapter(epubBook.navigation.toc);
         setChapterTitle(title?.trim() || book.title);
       }
+
+      // Update visible text anchor when user flips pages or scrolls normally
+      if (!showTts) {
+        setTimeout(() => {
+          const anchor = getCurrentVisibleTextAnchor();
+          if (anchor) currentReadingAnchorRef.current = anchor;
+        }, 120);
+      }
     });
 
     // Handle Text Selection in reader
@@ -543,11 +553,7 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
     });
   }, [highlights]);
 
-  // Re-apply styles on settings change
-  useEffect(() => {
-    applyStyles(settings);
-    saveSettings(settings);
-  }, [settings, applyStyles]);
+
 
   // Re-render if flow mode or spread changes
   const handleUpdateSettings = (newSettings: Partial<ReadingSettings>) => {
@@ -1208,6 +1214,7 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
   const prepareSentenceDisplay = useCallback(
     async (index: number, sentenceText: string) => {
       setTtsSentenceIndex(index);
+      currentReadingAnchorRef.current = sentenceText;
       const isMovingForward = index >= lastTtsIndexRef.current;
       lastTtsIndexRef.current = index;
 
@@ -1282,6 +1289,7 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
   const handleTtsSentenceChange = useCallback(
     (index: number, sentenceText: string) => {
       setTtsSentenceIndex(index);
+      currentReadingAnchorRef.current = sentenceText;
       prepareSentenceDisplay(index, sentenceText);
     },
     [prepareSentenceDisplay]
@@ -1377,61 +1385,302 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
     }
   }, [extractCurrentDocSentences, ttsSentences, findCurrentVisibleSentenceIndex, prepareSentenceDisplay]);
 
+  // Extract text snippet currently at the top/center of the visible viewport
+  const getCurrentVisibleTextAnchor = useCallback((): string => {
+    if (!renditionRef.current) return '';
+    try {
+      const contents: any = renditionRef.current.getContents();
+      const item = Array.isArray(contents) ? contents[0] : contents;
+      const doc: Document | undefined = item?.document;
+      if (!doc || !doc.body) return '';
+
+      const isPaginated = settings.flow !== 'scrolled-doc';
+      const view = doc.defaultView;
+      const viewWidth = view?.innerWidth || window.innerWidth;
+      const viewHeight = view?.innerHeight || window.innerHeight;
+
+      const managerContainer = (renditionRef.current as any)?.manager?.container;
+      const containerScrollLeft = managerContainer?.scrollLeft || 0;
+      const containerScrollTop = managerContainer?.scrollTop || 0;
+
+      const blockEls = Array.from(
+        doc.body.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote')
+      );
+
+      for (const el of blockEls) {
+        const text = (el.textContent || '').trim();
+        if (!text || text.length < 5) continue;
+
+        try {
+          const r = el.getBoundingClientRect();
+          let isVisible = false;
+          if (isPaginated) {
+            const relLeft = r.left - containerScrollLeft;
+            const relRight = r.right - containerScrollLeft;
+            isVisible = relRight > 20 && relLeft < viewWidth - 20;
+          } else {
+            const relTop = r.top - containerScrollTop;
+            const relBottom = r.bottom - containerScrollTop;
+            isVisible = relBottom > 15 && relTop < viewHeight * 0.7;
+          }
+
+          if (isVisible) {
+            return text.slice(0, 60);
+          }
+        } catch {}
+      }
+    } catch (err) {
+      console.warn('[Anchor] Lỗi lấy đoạn text đang đọc:', err);
+    }
+    return '';
+  }, [settings.flow]);
+
+  // Text-anchor approach: Locate and navigate directly to the specified text snippet
+  // without depending on stale CFIs or obsolete layout coordinates.
+  const relocateToTextAnchor = useCallback(
+    async (
+      anchorText: string,
+      options: { highlight?: boolean; pulse?: boolean; smooth?: boolean } = {}
+    ) => {
+      if (!anchorText || !renditionRef.current) return;
+      const clean = anchorText.trim();
+      if (!clean) return;
+
+      try {
+        const contents: any = renditionRef.current.getContents();
+        const item = Array.isArray(contents) ? contents[0] : contents;
+        if (!item || !item.document || !item.document.body) return;
+        const doc: Document = item.document;
+
+        // Clean any temporary mark to search in clean DOM
+        cleanupTtsHighlight(doc);
+
+        const targetSnippet = clean.slice(0, Math.min(32, clean.length)).trim();
+        const shortSnippet = clean.slice(0, Math.min(16, clean.length)).trim();
+        const normTarget = normalizeText(targetSnippet);
+        const normShort = normalizeText(shortSnippet);
+        const words = normTarget.split(' ').filter((w) => w.length > 0);
+        const wordKey = words.slice(0, Math.min(4, words.length)).join(' ');
+
+        const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT, null);
+        let node: Node | null;
+        let matchedNode: Node | null = null;
+        let startIdx = -1;
+        let matchLen = 0;
+
+        while ((node = walker.nextNode())) {
+          const raw = node.textContent || '';
+          const norm = normalizeText(raw);
+
+          let idx = raw.indexOf(targetSnippet);
+          let len = targetSnippet.length;
+          if (idx === -1 && shortSnippet.length >= 6) {
+            idx = raw.indexOf(shortSnippet);
+            len = shortSnippet.length;
+          }
+          if (idx === -1 && normTarget.length >= 6) {
+            const nIdx = norm.indexOf(normTarget);
+            if (nIdx !== -1) {
+              idx = Math.min(nIdx, raw.length - 1);
+              len = Math.min(normTarget.length, raw.length - idx);
+            }
+          }
+          if (idx === -1 && normShort.length >= 5) {
+            const nIdx = norm.indexOf(normShort);
+            if (nIdx !== -1) {
+              idx = Math.min(nIdx, raw.length - 1);
+              len = Math.min(normShort.length, raw.length - idx);
+            }
+          }
+          if (idx === -1 && wordKey.length >= 6) {
+            const nIdx = norm.indexOf(wordKey);
+            if (nIdx !== -1) {
+              idx = Math.min(nIdx, raw.length - 1);
+              len = Math.min(wordKey.length, raw.length - idx);
+            }
+          }
+
+          if (idx !== -1) {
+            matchedNode = node;
+            startIdx = idx;
+            matchLen = len;
+            break;
+          }
+        }
+
+        let targetRange: Range | null = null;
+        let activeEl: HTMLElement | null = null;
+
+        if (matchedNode && startIdx !== -1) {
+          try {
+            const r = doc.createRange();
+            r.setStart(matchedNode, startIdx);
+            r.setEnd(matchedNode, Math.min(matchedNode.textContent?.length || 0, startIdx + matchLen));
+            targetRange = r;
+            activeEl = matchedNode.parentElement;
+          } catch {}
+        }
+
+        if (!targetRange || !activeEl) {
+          // Fallback to block element query
+          const blockEls = doc.body.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote');
+          for (const b of blockEls) {
+            const bNorm = normalizeText(b.textContent || '');
+            if (
+              bNorm.includes(normTarget) ||
+              (wordKey.length >= 6 && bNorm.includes(wordKey)) ||
+              (normShort.length >= 5 && bNorm.includes(normShort))
+            ) {
+              const r = doc.createRange();
+              r.selectNodeContents(b);
+              targetRange = r;
+              activeEl = b as HTMLElement;
+              break;
+            }
+          }
+        }
+
+        if (!targetRange || !activeEl) return;
+
+        const isPaginated = settings.flow !== 'scrolled-doc';
+
+        if (isPaginated) {
+          let navigated = false;
+          if (item && typeof item.cfiFromRange === 'function') {
+            try {
+              const freshCfi = item.cfiFromRange(targetRange);
+              if (freshCfi) {
+                currentTtsCfiRef.current = freshCfi;
+                if (item?.section?.href) {
+                  currentTtsSectionHrefRef.current = item.section.href;
+                }
+                await renditionRef.current.display(freshCfi);
+                navigated = true;
+              }
+            } catch (e) {
+              console.debug('[Relocate] cfiFromRange fallback to column scroll:', e);
+            }
+          }
+
+          if (!navigated) {
+            const managerContainer = (renditionRef.current as any)?.manager?.container;
+            const delta =
+              (renditionRef.current as any)?.manager?.layout?.delta ||
+              viewerRef.current?.clientWidth ||
+              1;
+            if (managerContainer && delta > 0) {
+              const currentScrollLeft = managerContainer.scrollLeft || 0;
+              const rangeRect = targetRange.getBoundingClientRect();
+              const absLeft = currentScrollLeft + rangeRect.left;
+              const targetScrollLeft = Math.max(0, Math.floor(absLeft / delta) * delta);
+              managerContainer.scrollLeft = targetScrollLeft;
+            }
+          }
+        } else {
+          activeEl.scrollIntoView({
+            behavior: options.smooth ? 'smooth' : 'auto',
+            block: 'center',
+          });
+        }
+
+        if (options.highlight || ttsHighlightEnabled) {
+          await new Promise((r) => setTimeout(r, 60));
+          const freshContents: any = renditionRef.current.getContents();
+          const freshItem = Array.isArray(freshContents) ? freshContents[0] : freshContents;
+          if (freshItem && freshItem.document) {
+            highlightSentenceAndDetermineTurn(
+              freshItem.document,
+              clean,
+              true,
+              isPaginated,
+              freshItem,
+              true // forceLocate
+            );
+
+            if (options.pulse) {
+              const mark = freshItem.document.querySelector('.readera-tts-sentence-active');
+              if (mark) {
+                mark.classList.remove('readera-tts-sentence-locate-pulse');
+                void (mark as HTMLElement).offsetWidth;
+                mark.classList.add('readera-tts-sentence-locate-pulse');
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[Relocate] Lỗi định vị theo đoạn text:', err);
+      }
+    },
+    [settings.flow, cleanupTtsHighlight, normalizeText, ttsHighlightEnabled, highlightSentenceAndDetermineTurn]
+  );
+
+  // Re-apply styles on settings change and anchor reading position across font changes
+  useEffect(() => {
+    const prev = prevSettingsRef.current;
+    const fontOrLayoutChanged =
+      prev.fontSize !== settings.fontSize ||
+      prev.fontFamily !== settings.fontFamily ||
+      prev.lineHeight !== settings.lineHeight ||
+      prev.textAlign !== settings.textAlign;
+
+    prevSettingsRef.current = settings;
+
+    if (fontOrLayoutChanged) {
+      // 1. Capture text chunk currently being read before layout changes
+      let anchorText = '';
+      if (showTts && ttsSentences.length > 0) {
+        const currentIdx = ttsService.getCurrentIndex() >= 0 ? ttsService.getCurrentIndex() : ttsSentenceIndex;
+        anchorText = ttsSentences[currentIdx] || ttsSentences[ttsSentenceIndex] || currentReadingAnchorRef.current;
+      }
+      if (!anchorText) {
+        anchorText = currentReadingAnchorRef.current || getCurrentVisibleTextAnchor();
+      }
+
+      // 2. Apply new font and styling
+      applyStyles(settings);
+      saveSettings(settings);
+
+      // 3. Immediately relocate to the exact reading text in the new layout
+      if (anchorText) {
+        setTimeout(() => {
+          relocateToTextAnchor(anchorText, {
+            highlight: showTts,
+            pulse: showTts,
+            smooth: false,
+          });
+        }, 80);
+      }
+    } else {
+      applyStyles(settings);
+      saveSettings(settings);
+    }
+  }, [settings, applyStyles, showTts, ttsSentences, ttsSentenceIndex, getCurrentVisibleTextAnchor, relocateToTextAnchor]);
+
   // Navigate directly to the currently reading sentence in the book
   const handleLocateCurrentTtsSentence = useCallback(async () => {
     const currentIdx = ttsService.getCurrentIndex() >= 0 ? ttsService.getCurrentIndex() : ttsSentenceIndex;
-    const sentenceText = ttsSentences[currentIdx] || ttsSentences[ttsSentenceIndex];
+    const sentenceText = ttsSentences[currentIdx] || ttsSentences[ttsSentenceIndex] || currentReadingAnchorRef.current;
+    if (!sentenceText) return;
 
     try {
-      // 1. If we have a stored CFI for the currently reading sentence, jump straight to it
-      if (currentTtsCfiRef.current && renditionRef.current) {
-        await renditionRef.current.display(currentTtsCfiRef.current);
-        await new Promise((r) => setTimeout(r, 100));
-      } else if (currentTtsSectionHrefRef.current && renditionRef.current) {
-        await renditionRef.current.display(currentTtsSectionHrefRef.current);
-        await new Promise((r) => setTimeout(r, 100));
-      }
-
-      // 2. Locate, highlight and scroll/turn to sentence
       const contents: any = renditionRef.current?.getContents();
       const item = Array.isArray(contents) ? contents[0] : contents;
-      if (item?.document && item.document.body && sentenceText) {
-        const isPaginated = settings.flow !== 'scrolled-doc';
-        const action = highlightSentenceAndDetermineTurn(
-          item.document,
-          sentenceText,
-          true,
-          isPaginated,
-          item,
-          true // forceLocate: always highlight & prioritize locating sentence
-        );
+      const currentHref = item?.section?.href;
 
-        if (action && typeof action === 'object' && 'cfi' in action && renditionRef.current) {
-          currentTtsCfiRef.current = action.cfi;
-          await renditionRef.current.display(action.cfi);
-          await new Promise((r) => setTimeout(r, 100));
-          const newContents: any = renditionRef.current?.getContents();
-          const newItem = Array.isArray(newContents) ? newContents[0] : newContents;
-          if (newItem?.document) {
-            highlightSentenceAndDetermineTurn(newItem.document, sentenceText, true, isPaginated, newItem, true);
-          }
-        }
-
-        // Apply brief attention pulse animation to the active sentence
-        const activeMark = item.document.querySelector('.readera-tts-sentence-active');
-        if (activeMark) {
-          activeMark.classList.remove('readera-tts-sentence-locate-pulse');
-          void (activeMark as HTMLElement).offsetWidth; // force reflow
-          activeMark.classList.add('readera-tts-sentence-locate-pulse');
-          if (!isPaginated) {
-            (activeMark as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'center' });
-          }
-        }
+      if (currentTtsSectionHrefRef.current && currentHref && currentHref !== currentTtsSectionHrefRef.current) {
+        await renditionRef.current?.display(currentTtsSectionHrefRef.current);
+        await new Promise((r) => setTimeout(r, 120));
       }
+
+      await relocateToTextAnchor(sentenceText, {
+        highlight: true,
+        pulse: true,
+        smooth: true,
+      });
     } catch (err) {
       console.warn('[TTS] Lỗi chuyển tới vị trí đang đọc:', err);
     }
-  }, [ttsSentences, ttsSentenceIndex, settings.flow, highlightSentenceAndDetermineTurn]);
+  }, [ttsSentences, ttsSentenceIndex, relocateToTextAnchor]);
 
 
   const handleTtsNextChapter = () => {
