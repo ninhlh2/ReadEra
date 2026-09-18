@@ -103,7 +103,7 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
   const [ttsSentenceIndex, setTtsSentenceIndex] = useState<number>(0);
   const [ttsHighlightEnabled, setTtsHighlightEnabled] = useState<boolean>(true);
   const lastTtsIndexRef = useRef<number>(0);
-  const ttsDisplayingRef = useRef<boolean>(false);
+  const displayPromiseRef = useRef<Promise<void> | null>(null);
   const currentLocationRef = useRef<any>(null);
   const currentTtsCfiRef = useRef<string | null>(null);
   const currentTtsSectionHrefRef = useRef<string | null>(null);
@@ -1002,9 +1002,10 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
     return 0;
   };
 
-  // Locate and highlight sentence; returns 'none' | 'navigate' | { cfi: string } direction
-  // When the sentence is found in the current document but on a different page,
-  // it returns the CFI so prepareSentenceDisplay can navigate with rendition.display(cfi).
+  // Turn action for TTS synchronization
+  type TurnAction = 'next' | 'prev' | 'none' | { jumpScroll: number };
+
+  // Locate and highlight sentence; accurately determines page turn action in paginated mode
   const highlightSentenceAndDetermineTurn = useCallback(
     (
       doc: Document,
@@ -1013,9 +1014,8 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
       isPaginated: boolean,
       item?: any,
       forceLocate: boolean = false
-    ): 'next' | 'prev' | 'none' | { cfi: string } => {
+    ): TurnAction => {
       cleanupTtsHighlight(doc);
-      if (!ttsHighlightEnabled && !forceLocate) return 'none';
 
       const clean = sentenceText.trim();
       if (!clean) return 'none';
@@ -1043,6 +1043,11 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
       }
       const candidates: MatchCandidate[] = [];
 
+      const manager = (renditionRef.current as any)?.manager;
+      const managerContainer = manager?.container;
+      const containerScrollLeft = managerContainer?.scrollLeft || 0;
+      const delta = manager?.layout?.delta || viewerRef.current?.clientWidth || viewWidth || 1;
+
       while ((node = walker.nextNode())) {
         const rawText = node.textContent || '';
         const normText = normalizeText(rawText);
@@ -1058,7 +1063,6 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
         if (idx === -1 && normSnippet.length >= 6) {
           const normIdx = normText.indexOf(normSnippet);
           if (normIdx !== -1) {
-            // Approximate position in raw string (character offset)
             idx = Math.min(normIdx, rawText.length - 1);
             snippetLen = Math.min(normSnippet.length, rawText.length - idx);
           }
@@ -1080,27 +1084,24 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
 
             let score = 0;
             if (isPaginated) {
-              const managerContainer = (renditionRef.current as any)?.manager?.container;
-              const containerScrollLeft = managerContainer?.scrollLeft || 0;
-              const windowScrollX = doc.defaultView?.scrollX || 0;
-              const scrollOffsetLeft = windowScrollX > 0 ? 0 : containerScrollLeft;
+              const targetPageScroll = Math.max(0, Math.floor(rect.left / delta) * delta);
+              const pageDiff = Math.round((targetPageScroll - containerScrollLeft) / delta);
 
-              const relLeft = rect.left - scrollOffsetLeft;
-              const relRight = rect.right - scrollOffsetLeft;
-              const isCurrentPage = relRight > 15 && relLeft < viewWidth - 25 && rect.bottom > 15 && rect.top < viewHeight + 50;
-              const isNextPage = relLeft >= viewWidth - 25;
-              const isPrevPage = relRight <= 15;
+              const relLeft = rect.left - containerScrollLeft;
+              const relRight = rect.right - containerScrollLeft;
+              const isCurrentPage = pageDiff === 0 && relRight > 15 && relLeft < viewWidth - 25;
+              const isNextPage = pageDiff > 0 || relLeft >= viewWidth - 25;
+              const isPrevPage = pageDiff < 0 || relRight <= 15;
 
               if (forceLocate) {
                 score = isCurrentPage ? 1000 : 600;
               } else if (isCurrentPage) {
                 score = 1000;
               } else if (isNextPage) {
-                score = isMovingForward ? 700 : 200;
+                score = isMovingForward ? (700 - pageDiff * 10) : (200 - pageDiff * 10);
               } else if (isPrevPage) {
-                score = isMovingForward ? -500 : 800;
+                score = isMovingForward ? (-500 + pageDiff * 10) : (800 + pageDiff * 10);
               } else {
-                // Far-off pages: still useful as fallback
                 score = 100;
               }
             } else {
@@ -1122,6 +1123,7 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
       let highlightRange: Range | null = null;
 
       if (best) {
+        targetRect = best.rect;
         try {
           const range = doc.createRange();
           const text = best.node.textContent || '';
@@ -1130,15 +1132,23 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
           range.setEnd(best.node, best.startIdx + matchLen);
           highlightRange = range;
 
-          const mark = doc.createElement('mark');
-          mark.className = 'readera-tts-sentence-active';
-          range.surroundContents(mark);
-          activeEl = mark;
-          targetRect = best.rect;
+          if (ttsHighlightEnabled || forceLocate) {
+            const mark = doc.createElement('mark');
+            mark.className = 'readera-tts-sentence-active';
+            range.surroundContents(mark);
+            activeEl = mark;
+            try {
+              targetRect = mark.getBoundingClientRect() || best.rect;
+            } catch {}
+          } else {
+            activeEl = (best.node.parentElement || doc.body) as HTMLElement;
+          }
         } catch {
           const parent = best.node.parentElement;
           if (parent) {
-            parent.classList.add('readera-tts-sentence-active');
+            if (ttsHighlightEnabled || forceLocate) {
+              parent.classList.add('readera-tts-sentence-active');
+            }
             activeEl = parent;
             targetRect = best.rect;
           }
@@ -1167,16 +1177,21 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
           if (elNorm.includes(normSnippet) || (normShort.length >= 5 && elNorm.includes(normShort))) {
             const r = el.getBoundingClientRect();
             if (isPaginated) {
-              const isVisible = r.left >= -20 && r.left < viewWidth - 25;
-              const isNext = r.left >= viewWidth - 25;
+              const relLeft = r.left - containerScrollLeft;
+              const isVisible = relLeft >= -20 && relLeft < viewWidth - 25;
+              const isNext = relLeft >= viewWidth - 25;
               if (isVisible || (isMovingForward && isNext) || !isMovingForward) {
-                el.classList.add('readera-tts-sentence-active');
+                if (ttsHighlightEnabled || forceLocate) {
+                  el.classList.add('readera-tts-sentence-active');
+                }
                 activeEl = el as HTMLElement;
                 targetRect = r;
                 break;
               }
             } else {
-              el.classList.add('readera-tts-sentence-active');
+              if (ttsHighlightEnabled || forceLocate) {
+                el.classList.add('readera-tts-sentence-active');
+              }
               activeEl = el as HTMLElement;
               targetRect = r;
               break;
@@ -1188,35 +1203,23 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
       if (!activeEl || !targetRect) return 'none';
 
       if (isPaginated) {
-        const managerContainer = (renditionRef.current as any)?.manager?.container;
-        const containerScrollLeft = managerContainer?.scrollLeft || 0;
-        const windowScrollX = doc.defaultView?.scrollX || 0;
-        const scrollOffsetLeft = windowScrollX > 0 ? 0 : containerScrollLeft;
-
-        const relLeft = targetRect.left - scrollOffsetLeft;
-        const relRight = targetRect.right - scrollOffsetLeft;
+        const relLeft = targetRect.left - containerScrollLeft;
+        const relRight = targetRect.right - containerScrollLeft;
 
         const isOnCurrentPage =
           relRight > 15 && relLeft < viewWidth - 25 &&
           targetRect.bottom > 10 && targetRect.top < viewHeight + 20;
 
         if (!isOnCurrentPage) {
-          // Try to get a CFI for exact page navigation
-          if (item && highlightRange) {
-            try {
-              const cfi: string = item.cfiFromRange
-                ? item.cfiFromRange(highlightRange)
-                : item.cfiFromNode
-                ? item.cfiFromNode(activeEl)
-                : null;
-              if (cfi) return { cfi };
-            } catch {}
-          }
-          // Fallback to next/prev
-          if (relLeft >= viewWidth - 25) {
+          const targetScrollLeft = Math.max(0, Math.floor(targetRect.left / delta) * delta);
+          const pageDiff = Math.round((targetScrollLeft - containerScrollLeft) / delta);
+
+          if (pageDiff === 1 || (pageDiff === 0 && relLeft >= viewWidth - 25)) {
             return 'next';
-          } else if (relRight <= 15) {
+          } else if (pageDiff === -1 || (pageDiff === 0 && relRight <= 15)) {
             return 'prev';
+          } else if (pageDiff !== 0) {
+            return { jumpScroll: targetScrollLeft };
           }
         }
         return 'none';
@@ -1230,64 +1233,71 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
 
   // Synchronize sentence display and page turning before speaking
   const prepareSentenceDisplay = useCallback(
-    async (index: number, sentenceText: string) => {
+    (index: number, sentenceText: string): Promise<void> => {
       setTtsSentenceIndex(index);
       currentReadingAnchorRef.current = sentenceText;
       const isMovingForward = index >= lastTtsIndexRef.current;
       lastTtsIndexRef.current = index;
 
-      if (!sentenceText) return;
-      // Guard against concurrent calls
-      if (ttsDisplayingRef.current) return;
-      ttsDisplayingRef.current = true;
+      if (!sentenceText) return Promise.resolve();
 
-      try {
-        const contents: any = renditionRef.current?.getContents();
-        const item = Array.isArray(contents) ? contents[0] : contents;
-        if (!item || !item.document || !item.document.body) return;
-        const doc: Document = item.document;
-
-        const isPaginated = settings.flow !== 'scrolled-doc';
-        const action = highlightSentenceAndDetermineTurn(doc, sentenceText, isMovingForward, isPaginated, item);
-
-        if (action && typeof action === 'object' && 'cfi' in action && renditionRef.current) {
-          currentTtsCfiRef.current = action.cfi;
-          if (item?.section?.href) {
-            currentTtsSectionHrefRef.current = item.section.href;
-          }
-          // Navigate to exact CFI (precise page/position navigation via epubjs)
-          await renditionRef.current.display(action.cfi);
-          await new Promise((r) => setTimeout(r, 80));
-          // Re-highlight after navigation – get fresh contents post-page-turn
-          const newContents: any = renditionRef.current?.getContents();
-          const newItem = Array.isArray(newContents) ? newContents[0] : newContents;
-          if (newItem && newItem.document) {
-            highlightSentenceAndDetermineTurn(newItem.document, sentenceText, isMovingForward, isPaginated, newItem);
-          }
-        } else if (action === 'next' && renditionRef.current) {
-          await renditionRef.current.next();
-          // Short pause (~80ms) for page turn animation to complete
-          await new Promise((r) => setTimeout(r, 80));
-          // Re-highlight sentence on the new visible page – get fresh contents post-page-turn
-          const newContents: any = renditionRef.current?.getContents();
-          const newItem = Array.isArray(newContents) ? newContents[0] : newContents;
-          if (newItem && newItem.document) {
-            highlightSentenceAndDetermineTurn(newItem.document, sentenceText, true, isPaginated, newItem);
-          }
-        } else if (action === 'prev' && renditionRef.current) {
-          await renditionRef.current.prev();
-          await new Promise((r) => setTimeout(r, 80));
-          const newContents: any = renditionRef.current?.getContents();
-          const newItem = Array.isArray(newContents) ? newContents[0] : newContents;
-          if (newItem && newItem.document) {
-            highlightSentenceAndDetermineTurn(newItem.document, sentenceText, false, isPaginated, newItem);
-          }
-        }
-      } catch (err) {
-        console.warn('Lỗi chuẩn bị hiển thị câu TTS:', err);
-      } finally {
-        ttsDisplayingRef.current = false;
+      // Guard against concurrent duplicate calls: reuse ongoing promise if in-flight
+      if (displayPromiseRef.current) {
+        return displayPromiseRef.current;
       }
+
+      const task = (async () => {
+        try {
+          const contents: any = renditionRef.current?.getContents();
+          const item = Array.isArray(contents) ? contents[0] : contents;
+          if (!item || !item.document || !item.document.body) return;
+          const doc: Document = item.document;
+
+          const isPaginated = settings.flow !== 'scrolled-doc';
+          const action = highlightSentenceAndDetermineTurn(doc, sentenceText, isMovingForward, isPaginated, item);
+
+          if (action === 'next' && renditionRef.current) {
+            await renditionRef.current.next();
+            // Short pause (~100ms) for page turn animation/layout to settle
+            await new Promise((r) => setTimeout(r, 100));
+            // Re-highlight sentence on the new visible page
+            const newContents: any = renditionRef.current?.getContents();
+            const newItem = Array.isArray(newContents) ? newContents[0] : newContents;
+            if (newItem && newItem.document) {
+              highlightSentenceAndDetermineTurn(newItem.document, sentenceText, true, isPaginated, newItem);
+            }
+          } else if (action === 'prev' && renditionRef.current) {
+            await renditionRef.current.prev();
+            await new Promise((r) => setTimeout(r, 100));
+            const newContents: any = renditionRef.current?.getContents();
+            const newItem = Array.isArray(newContents) ? newContents[0] : newContents;
+            if (newItem && newItem.document) {
+              highlightSentenceAndDetermineTurn(newItem.document, sentenceText, false, isPaginated, newItem);
+            }
+          } else if (action && typeof action === 'object' && 'jumpScroll' in action && renditionRef.current) {
+            const manager = (renditionRef.current as any)?.manager;
+            if (manager && typeof manager.scrollTo === 'function') {
+              manager.scrollTo(action.jumpScroll, 0, false);
+            } else if (manager?.container) {
+              manager.container.scrollLeft = action.jumpScroll;
+            }
+            renditionRef.current.reportLocation?.();
+            await new Promise((r) => setTimeout(r, 100));
+            const newContents: any = renditionRef.current?.getContents();
+            const newItem = Array.isArray(newContents) ? newContents[0] : newContents;
+            if (newItem && newItem.document) {
+              highlightSentenceAndDetermineTurn(newItem.document, sentenceText, isMovingForward, isPaginated, newItem);
+            }
+          }
+        } catch (err) {
+          console.warn('Lỗi chuẩn bị hiển thị câu TTS:', err);
+        } finally {
+          displayPromiseRef.current = null;
+        }
+      })();
+
+      displayPromiseRef.current = task;
+      return task;
     },
     [highlightSentenceAndDetermineTurn, settings.flow]
   );
@@ -1308,7 +1318,11 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
     (index: number, sentenceText: string) => {
       setTtsSentenceIndex(index);
       currentReadingAnchorRef.current = sentenceText;
-      prepareSentenceDisplay(index, sentenceText);
+      // Only invoke manual display if TTS is currently stopped or paused
+      // (during active playback, ttsService beforeSpeakHook invokes and awaits prepareSentenceDisplay)
+      if (!ttsService.getIsPlaying() || ttsService.getIsPaused()) {
+        prepareSentenceDisplay(index, sentenceText);
+      }
     },
     [prepareSentenceDisplay]
   );
