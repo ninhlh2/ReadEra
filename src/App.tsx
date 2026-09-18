@@ -14,9 +14,10 @@ import {
   getAllHighlights,
   removeHighlight,
   getSettings,
+  saveSettings,
+  getStoredSettingsSync,
   exportBackupJSON,
   importBackupJSON,
-  DEFAULT_SETTINGS,
 } from './services/storage';
 import { importEpubFile, importSampleBook } from './services/epubService';
 import { Header } from './components/Header';
@@ -29,7 +30,7 @@ export function App() {
   const [highlights, setHighlights] = useState<HighlightItem[]>([]);
   const [activeBook, setActiveBook] = useState<BookRecord | null>(null);
   const [activeBuffer, setActiveBuffer] = useState<ArrayBuffer | null>(null);
-  const [settings, setSettings] = useState<ReadingSettings>(DEFAULT_SETTINGS);
+  const [settings, setSettings] = useState<ReadingSettings>(getStoredSettingsSync);
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [isLoadingSample, setIsLoadingSample] = useState(false);
@@ -37,14 +38,18 @@ export function App() {
 
   // Load books, collections, highlights and user settings
   const refreshAll = async () => {
-    const [bookList, colList, hlList] = await Promise.all([
+    const [bookList, colList, hlList, savedSettings] = await Promise.all([
       getAllBooks(),
       getAllCollections(),
       getAllHighlights(),
+      getSettings(),
     ]);
     setBooks(bookList);
     setCollections(colList);
     setHighlights(hlList);
+    if (savedSettings) {
+      setSettings(savedSettings);
+    }
   };
 
   useEffect(() => {
@@ -206,10 +211,18 @@ export function App() {
           book={activeBook}
           fileBuffer={activeBuffer}
           initialSettings={settings}
-          onClose={() => {
+          onClose={async (finalSettings) => {
+            if (finalSettings) {
+              setSettings(finalSettings);
+              await saveSettings(finalSettings);
+            }
             setActiveBook(null);
             setActiveBuffer(null);
             refreshAll();
+          }}
+          onUpdateSettings={(newSettings) => {
+            setSettings(newSettings);
+            saveSettings(newSettings);
           }}
           onUpdateProgress={handleUpdateProgress}
         />

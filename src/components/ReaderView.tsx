@@ -31,6 +31,8 @@ import {
   addBookmark,
   removeBookmark,
   saveSettings,
+  getSettings,
+  getStoredSettingsSync,
   getBookHighlights,
   saveHighlight,
   removeHighlight,
@@ -50,7 +52,8 @@ interface ReaderViewProps {
   book: BookRecord;
   fileBuffer: ArrayBuffer;
   initialSettings: ReadingSettings;
-  onClose: () => void;
+  onClose: (finalSettings?: ReadingSettings) => void;
+  onUpdateSettings?: (newSettings: ReadingSettings) => void;
   onUpdateProgress: (cfi: string, progress: number) => void;
 }
 
@@ -59,6 +62,7 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
   fileBuffer,
   initialSettings,
   onClose,
+  onUpdateSettings,
   onUpdateProgress,
 }) => {
   const viewerRef = useRef<HTMLDivElement>(null);
@@ -66,7 +70,9 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
   const renditionRef = useRef<Rendition | null>(null);
 
   // States
-  const [settings, setSettings] = useState<ReadingSettings>(initialSettings);
+  const [settings, setSettings] = useState<ReadingSettings>(() => {
+    return { ...initialSettings, ...getStoredSettingsSync() };
+  });
   const [showBars, setShowBars] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [chapterTitle, setChapterTitle] = useState('Đang tải...');
@@ -104,10 +110,15 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
   const currentReadingAnchorRef = useRef<string>('');
   const prevSettingsRef = useRef<ReadingSettings>(initialSettings);
 
-  // Load bookmarks & highlights on start
+  // Load bookmarks & highlights on start, and ensure latest settings loaded
   useEffect(() => {
     getBookBookmarks(book.id).then(setBookmarks);
     getBookHighlights(book.id).then(setHighlights);
+    getSettings().then((saved) => {
+      if (saved) {
+        setSettings((prev) => ({ ...prev, ...saved }));
+      }
+    });
   }, [book.id]);
 
   // Check if current location is bookmarked
@@ -575,6 +586,13 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
       }
     }
     setSettings(updated);
+    saveSettings(updated);
+    onUpdateSettings?.(updated);
+  };
+
+  const handleCloseReader = () => {
+    saveSettings(settings);
+    onClose(settings);
   };
 
   // Jump to previous chapter
@@ -1758,7 +1776,7 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
       {/* Top Floating Control Bar */}
       <header className={`reader-top-bar ${!showBars ? 'hidden' : ''}`}>
         <div className="reader-bar-left">
-          <button className="btn-icon" onClick={onClose} title="Quay lại thư viện">
+          <button className="btn-icon" onClick={handleCloseReader} title="Quay lại thư viện">
             <ArrowLeft size={18} />
           </button>
           <button className="btn-icon" onClick={() => setShowToc(true)} title="Mục lục sách">

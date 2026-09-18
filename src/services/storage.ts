@@ -245,18 +245,49 @@ export async function deleteCollection(id: string): Promise<void> {
 // ==========================================
 // SETTINGS
 // ==========================================
+export function getStoredSettingsSync(): ReadingSettings {
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEYS.SETTINGS) : null;
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      const res = { ...DEFAULT_SETTINGS, ...parsed };
+      if (res.spread === 'auto') res.spread = 'none';
+      return res;
+    }
+  } catch {}
+  return DEFAULT_SETTINGS;
+}
+
 export async function getSettings(): Promise<ReadingSettings> {
-  const saved = await get<ReadingSettings>(STORAGE_KEYS.SETTINGS);
-  const settings = { ...DEFAULT_SETTINGS, ...saved };
-  if (settings.spread === 'auto') {
-    settings.spread = 'none';
+  try {
+    const saved = await get<ReadingSettings>(STORAGE_KEYS.SETTINGS);
+    const syncSaved = getStoredSettingsSync();
+    const settings = { ...DEFAULT_SETTINGS, ...syncSaved, ...saved };
+    if (settings.spread === 'auto') {
+      settings.spread = 'none';
+    }
+    return settings;
+  } catch {
+    return getStoredSettingsSync();
   }
-  return settings;
 }
 
 export async function saveSettings(settings: Partial<ReadingSettings>): Promise<void> {
-  const current = await getSettings();
-  await set(STORAGE_KEYS.SETTINGS, { ...current, ...settings });
+  try {
+    const current = getStoredSettingsSync();
+    const updated = { ...current, ...settings };
+    if (updated.spread === 'auto') {
+      updated.spread = 'none';
+    }
+    if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(updated));
+      } catch {}
+    }
+    await set(STORAGE_KEYS.SETTINGS, updated);
+  } catch (err) {
+    console.warn('Lỗi lưu cài đặt:', err);
+  }
 }
 
 // ==========================================
