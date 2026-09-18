@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -35,7 +35,20 @@ jobs:
 
       - name: Build Web App
         run: npm run build
+        env:
+          GITHUB_PAGES: 'true'
 
+      # Dual-deploy method 1: Push built dist directly to gh-pages branch
+      # This allows instant zero-config deployment if repo uses "Deploy from a branch"
+      - name: Deploy to gh-pages branch
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
+          keep_files: false
+          force_orphan: true
+
+      # Dual-deploy method 2: Official GitHub Pages action
       - name: Setup GitHub Pages
         uses: actions/configure-pages@v5
         with:
