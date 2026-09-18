@@ -14,7 +14,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { ttsService } from '../services/ttsService';
-import type { TtsVoice, SleepTimerMode } from '../services/ttsService';
+import type { TtsVoice, SleepTimerMode, TtsPauseMode } from '../services/ttsService';
 
 interface TtsPlayerProps {
   bookTitle?: string;
@@ -51,6 +51,7 @@ export const TtsPlayer: React.FC<TtsPlayerProps> = ({
   const [selectedVoiceId, setSelectedVoiceId] = useState<string | null>(ttsService.getSelectedVoiceId());
   const [sleepMode, setSleepMode] = useState<SleepTimerMode>(ttsService.getSleepTimerMode());
   const [sleepRemaining, setSleepRemaining] = useState<number | null>(ttsService.getSleepTimerRemaining());
+  const [pauseMode, setPauseMode] = useState<TtsPauseMode>(ttsService.getPauseMode());
   const [showSettingsModal, setShowSettingsModal] = useState(false);
 
   // Initialize service with metadata and sentences
@@ -66,8 +67,8 @@ export const TtsPlayer: React.FC<TtsPlayerProps> = ({
     ttsService.getAvailableVoices().then((list) => {
       setVoices(list);
       if (!selectedVoiceId && list.length > 0) {
-        // Auto select first Vietnamese voice or default
-        const vi = list.find((v) => v.isVietnamese);
+        // Auto select first Vietnamese Natural voice or default Vietnamese
+        const vi = list.find((v) => v.isVietnamese && v.isNatural) || list.find((v) => v.isVietnamese);
         if (vi) {
           setSelectedVoiceId(vi.id);
           ttsService.setVoice(vi.id);
@@ -417,6 +418,37 @@ export const TtsPlayer: React.FC<TtsPlayerProps> = ({
                   onChange={(e) => handlePitchChange(parseFloat(e.target.value))}
                   className="tts-range-slider"
                 />
+              </div>
+
+              {/* Pause Between Sentences Style */}
+              <div className="tts-setting-group">
+                <div className="tts-setting-label-row">
+                  <label className="tts-setting-label">
+                    <Sparkles size={16} />
+                    <span>Khoảng ngắt giữa câu</span>
+                  </label>
+                  <span className="tts-slider-value">
+                    {pauseMode === 'compact' ? 'Gọn gàng (~25ms)' : pauseMode === 'relaxed' ? 'Thong thả (~160ms)' : 'Tự nhiên (~70ms)'}
+                  </span>
+                </div>
+                <div className="tts-chip-row">
+                  {[
+                    { id: 'compact', label: 'Gọn gàng' },
+                    { id: 'natural', label: 'Tự nhiên' },
+                    { id: 'relaxed', label: 'Thong thả' },
+                  ].map((item) => (
+                    <button
+                      key={item.id}
+                      className={`tts-chip ${pauseMode === item.id ? 'active' : ''}`}
+                      onClick={() => {
+                        setPauseMode(item.id as TtsPauseMode);
+                        ttsService.setPauseMode(item.id as TtsPauseMode);
+                      }}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {/* Sleep Timer */}

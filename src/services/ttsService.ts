@@ -12,8 +12,11 @@ export interface TtsVoice {
   rawName?: string;
   lang: string;
   isVietnamese: boolean;
+  isNatural?: boolean;
   engine?: string;
 }
+
+export type TtsPauseMode = 'compact' | 'natural' | 'relaxed';
 
 export type SleepTimerMode =
   | 'off'
@@ -105,7 +108,7 @@ export function formatVoiceLabel(
   voiceURI?: string,
   lang?: string,
   index?: number
-): { name: string; engine?: string } {
+): { name: string; engine?: string; isNatural?: boolean } {
   const uri = (voiceURI || '').toLowerCase();
   const nameLower = (rawName || '').toLowerCase();
   const isVi = (lang || '').toLowerCase().startsWith('vi') || uri.includes('vi-vn') || uri.includes('vie');
@@ -144,8 +147,20 @@ export function formatVoiceLabel(
   }
 
   let quality = '';
-  if (uri.includes('network') || uri.includes('online')) {
-    quality = 'Mạng tự nhiên';
+  const isNatural =
+    uri.includes('natural') ||
+    uri.includes('online') ||
+    uri.includes('neural') ||
+    nameLower.includes('natural') ||
+    nameLower.includes('online') ||
+    nameLower.includes('neural') ||
+    nameLower.includes('hoaimy') ||
+    nameLower.includes('namminh');
+
+  if (isNatural) {
+    quality = '✨ Tự nhiên';
+  } else if (uri.includes('network')) {
+    quality = 'Trực tuyến';
   } else if (uri.includes('local') || uri.includes('offline') || uri.includes('embedded')) {
     quality = 'Ngoại tuyến';
   }
@@ -157,13 +172,13 @@ export function formatVoiceLabel(
 
     if (quality) parts.push(quality);
     parts.push(`(${engine})`);
-    return { name: parts.join(' - '), engine };
+    return { name: parts.join(' - '), engine, isNatural };
   }
 
   // Non-Vietnamese
   const langTag = lang ? `[${lang}]` : '';
   const finalName = `${rawName || 'Voice'} ${langTag} (${engine})`.trim();
-  return { name: finalName, engine };
+  return { name: finalName, engine, isNatural };
 }
 
 /**
@@ -272,14 +287,19 @@ class TtsServiceManager {
                 v.lang.toLowerCase().startsWith('vi') ||
                 (v.voiceURI && v.voiceURI.toLowerCase().includes('vi'))
               ),
+              isNatural: formatted.isNatural,
               engine: formatted.engine,
             };
           });
 
-          // Sort Vietnamese first, then by engine name
+          // Sort Vietnamese first (with natural voices prioritized), then other languages
           return list.sort((a, b) => {
             if (a.isVietnamese && !b.isVietnamese) return -1;
             if (!a.isVietnamese && b.isVietnamese) return 1;
+            if (a.isVietnamese && b.isVietnamese) {
+              if (a.isNatural && !b.isNatural) return -1;
+              if (!a.isNatural && b.isNatural) return 1;
+            }
             return a.name.localeCompare(b.name);
           });
         }
@@ -316,6 +336,7 @@ class TtsServiceManager {
           rawName: v.name,
           lang: v.lang,
           isVietnamese: v.lang.toLowerCase().startsWith('vi'),
+          isNatural: formatted.isNatural,
           engine: formatted.engine,
         };
       });
@@ -323,6 +344,10 @@ class TtsServiceManager {
       return list.sort((a, b) => {
         if (a.isVietnamese && !b.isVietnamese) return -1;
         if (!a.isVietnamese && b.isVietnamese) return 1;
+        if (a.isVietnamese && b.isVietnamese) {
+          if (a.isNatural && !b.isNatural) return -1;
+          if (!a.isNatural && b.isNatural) return 1;
+        }
         return a.name.localeCompare(b.name);
       });
     }
@@ -548,6 +573,34 @@ class TtsServiceManager {
     return this.selectedVoiceId;
   }
 
+  // --- Pause Duration Mode ---
+  private pauseMode: TtsPauseMode = 'natural';
+
+  public setPauseMode(mode: TtsPauseMode) {
+    this.pauseMode = mode;
+  }
+
+  public getPauseMode(): TtsPauseMode {
+    return this.pauseMode;
+  }
+
+  public getSentencePauseDuration(sentenceText?: string): number {
+    const text = (sentenceText || '').trim();
+    // 'natural' is ~75ms (human breathing pause, not rushed, not too long)
+    // 'compact' is ~25ms (flowing reading with minimal gap)
+    // 'relaxed' is ~160ms (slower contemplation pause)
+    let baseMs = 75;
+    if (this.pauseMode === 'compact') baseMs = 25;
+    else if (this.pauseMode === 'relaxed') baseMs = 160;
+
+    // Sub-clauses ending with comma, semicolon, or colon need even less pause
+    if (/[,;:]$/.test(text) || /[,;:]["”’']$/.test(text)) {
+      baseMs = Math.round(baseMs * 0.45);
+    }
+
+    return Math.max(15, Math.round(baseMs / this.rate));
+  }
+
   // --- Sleep Timer ---
   public setSleepTimer(mode: SleepTimerMode) {
     this.sleepTimerMode = mode;
@@ -674,8 +727,7 @@ class TtsServiceManager {
 
         // Finished speaking this sentence
         if (this.speechSessionId === sessionId && this.isPlaying && !this.isPaused) {
-          // Natural breath pause between sentences (proportional to playback rate)
-          const pauseMs = Math.max(160, Math.round(280 / this.rate));
+          const pauseMs = this.getSentencePauseDuration(text);
           await this.sentencePause(pauseMs, sessionId);
           if (this.speechSessionId === sessionId && this.isPlaying && !this.isPaused) {
             this.nextSentence();
@@ -718,7 +770,7 @@ class TtsServiceManager {
     utterance.onend = async () => {
       this.clearWebSpeechKeepAlive();
       if (this.speechSessionId === sessionId && this.isPlaying && !this.isPaused) {
-        const pauseMs = Math.max(160, Math.round(280 / this.rate));
+        const pauseMs = this.getSentencePauseDuration(text);
         await this.sentencePause(pauseMs, sessionId);
         if (this.speechSessionId === sessionId && this.isPlaying && !this.isPaused) {
           this.nextSentence();

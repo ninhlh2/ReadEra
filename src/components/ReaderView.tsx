@@ -1143,7 +1143,7 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
         if (action && typeof action === 'object' && 'cfi' in action && renditionRef.current) {
           // Navigate to exact CFI (precise page/position navigation via epubjs)
           await renditionRef.current.display(action.cfi);
-          await new Promise((r) => setTimeout(r, 280));
+          await new Promise((r) => setTimeout(r, 80));
           // Re-highlight after navigation – get fresh contents post-page-turn
           const newContents: any = renditionRef.current?.getContents();
           const newItem = Array.isArray(newContents) ? newContents[0] : newContents;
@@ -1152,8 +1152,8 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
           }
         } else if (action === 'next' && renditionRef.current) {
           await renditionRef.current.next();
-          // Natural pause (~260ms) for page turn animation to complete before voice starts reading
-          await new Promise((r) => setTimeout(r, 260));
+          // Short pause (~80ms) for page turn animation to complete
+          await new Promise((r) => setTimeout(r, 80));
           // Re-highlight sentence on the new visible page – get fresh contents post-page-turn
           const newContents: any = renditionRef.current?.getContents();
           const newItem = Array.isArray(newContents) ? newContents[0] : newContents;
@@ -1162,7 +1162,7 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
           }
         } else if (action === 'prev' && renditionRef.current) {
           await renditionRef.current.prev();
-          await new Promise((r) => setTimeout(r, 260));
+          await new Promise((r) => setTimeout(r, 80));
           const newContents: any = renditionRef.current?.getContents();
           const newItem = Array.isArray(newContents) ? newContents[0] : newContents;
           if (newItem && newItem.document) {
