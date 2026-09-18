@@ -175,6 +175,16 @@ export const PdfReaderView: React.FC<PdfReaderViewProps> = ({
     }
   }, [currentPage, renderPage]);
 
+  // Re-render PDF page when bars are shown/hidden to adapt to full-screen height
+  useEffect(() => {
+    if (pdfDocRef.current) {
+      const timer = setTimeout(() => {
+        renderPage(currentPage);
+      }, 60);
+      return () => clearTimeout(timer);
+    }
+  }, [showBars, currentPage, renderPage]);
+
   // Page navigation
   const goToPage = (page: number) => {
     const p = Math.max(1, Math.min(totalPages, page));
@@ -326,7 +336,7 @@ export const PdfReaderView: React.FC<PdfReaderViewProps> = ({
   const brightnessDim = (100 - settings.brightness) / 100;
 
   return (
-    <div className={`reader-container theme-${settings.theme}`}>
+    <div className={`reader-container theme-${settings.theme} ${!showBars ? 'bars-hidden' : ''}`}>
       {/* Top Header */}
       <header className={`reader-top-bar ${!showBars ? 'hidden' : ''}`}>
         <div className="reader-bar-left">

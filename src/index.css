@@ -743,6 +743,15 @@ button:disabled {
   right: 0;
   overflow: hidden;
   box-sizing: border-box;
+  transition: top 0.15s ease, bottom 0.15s ease;
+}
+
+/* Fullscreen / Full-page mode when bars are hidden */
+.reader-container.bars-hidden .epub-viewer-area {
+  top: 0;
+  bottom: 0;
+  padding-top: max(8px, env(safe-area-inset-top, 0px));
+  padding-bottom: max(8px, env(safe-area-inset-bottom, 0px));
 }
 
 /* Touch / Click navigation invisible zones */
@@ -753,6 +762,12 @@ button:disabled {
   width: 25%;
   z-index: 20;
   cursor: pointer;
+  transition: top 0.15s ease, bottom 0.15s ease;
+}
+
+.reader-container.bars-hidden .reader-nav-zone {
+  top: 0;
+  bottom: 0;
 }
 .reader-nav-zone.prev {
   left: 0;
@@ -1564,9 +1579,19 @@ button:disabled {
     left: 0;
     right: 0;
   }
+  .reader-container.bars-hidden .epub-viewer-area {
+    top: 0;
+    bottom: 0;
+    padding-top: max(6px, env(safe-area-inset-top, 0px));
+    padding-bottom: max(6px, env(safe-area-inset-bottom, 0px));
+  }
   .reader-nav-zone {
     top: 52px;
     bottom: 80px;
+  }
+  .reader-container.bars-hidden .reader-nav-zone {
+    top: 0;
+    bottom: 0;
   }
 
   .reader-bottom-bar {
@@ -1822,8 +1847,29 @@ button:disabled {
   align-items: center;
   justify-content: center;
   overflow: auto;
-  padding: 20px;
+  padding: 68px 20px 92px 20px;
   box-sizing: border-box;
+  transition: padding 0.15s ease;
+}
+
+.reader-container.bars-hidden .pdf-viewport-wrapper {
+  padding: max(16px, env(safe-area-inset-top, 0px)) 20px max(16px, env(safe-area-inset-bottom, 0px)) 20px;
+}
+
+/* Touch zones for PDF pagination and bar toggle */
+.touch-zone {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 25%;
+  z-index: 20;
+  cursor: pointer;
+}
+.touch-zone.touch-left {
+  left: 0;
+}
+.touch-zone.touch-right {
+  right: 0;
 }
 
 .pdf-page-canvas {

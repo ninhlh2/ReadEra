@@ -326,10 +326,30 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
     });
     renditionRef.current = rendition;
 
-    // Hook each content load to inject custom styles
+    // Hook each content load to inject custom styles and tap listeners
     rendition.hooks.content.register((contents: any) => {
       if (contents && contents.document) {
         injectThemeStyles(contents.document, settingsRef.current);
+
+        contents.document.addEventListener('click', (e: MouseEvent) => {
+          const sel = contents.window?.getSelection();
+          if (sel && sel.toString().trim().length > 0) return;
+          const target = e.target as HTMLElement | null;
+          if (target && (target.tagName === 'A' || target.closest('a'))) return;
+
+          const width = contents.window?.innerWidth || window.innerWidth;
+          const x = e.clientX;
+          if (x < width * 0.25) {
+            renditionRef.current?.prev();
+            setSelectionData(null);
+          } else if (x > width * 0.75) {
+            renditionRef.current?.next();
+            setSelectionData(null);
+          } else {
+            setShowBars((prev) => !prev);
+            setSelectionData(null);
+          }
+        });
       }
     });
 
@@ -441,13 +461,39 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
             (renditionRef.current as any).spread('none', 1000);
           } catch {}
         }
-        renditionRef.current.resize(viewerRef.current.clientWidth, viewerRef.current.clientHeight);
+        const targetCfi = currentLocationRef.current?.start?.cfi;
+        (renditionRef.current as any).resize(viewerRef.current.clientWidth, viewerRef.current.clientHeight, targetCfi || undefined);
       }
     };
     window.addEventListener('resize', handleWindowResize);
 
+    // ResizeObserver to detect any dimension change of the viewer container
+    let resizeTimer: any = null;
+    let observer: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && viewerRef.current) {
+      observer = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+          const { width, height } = entry.contentRect;
+          if (width > 0 && height > 0 && renditionRef.current) {
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(() => {
+              try {
+                const targetCfi = currentLocationRef.current?.start?.cfi;
+                (renditionRef.current as any)?.resize(Math.floor(width), Math.floor(height), targetCfi || undefined);
+              } catch (e) {
+                console.warn('ResizeObserver error:', e);
+              }
+            }, 50);
+          }
+        }
+      });
+      observer.observe(viewerRef.current);
+    }
+
     return () => {
       window.removeEventListener('resize', handleWindowResize);
+      clearTimeout(resizeTimer);
+      if (observer) observer.disconnect();
       try {
         rendition.destroy();
         epubBook.destroy();
@@ -1321,8 +1367,46 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
       });
   };
 
+  // Resize rendition to full screen or default when bars are toggled (nhấn vào giữa để ẩn/hiện thanh công cụ)
+  useEffect(() => {
+    if (!renditionRef.current || !viewerRef.current) return;
+    const timer = setTimeout(() => {
+      try {
+        if (renditionRef.current && viewerRef.current) {
+          const width = viewerRef.current.clientWidth;
+          const height = viewerRef.current.clientHeight;
+          if (width > 0 && height > 0) {
+            const targetCfi = currentLocationRef.current?.start?.cfi || currentCfi;
+            (renditionRef.current as any).resize(width, height, targetCfi || undefined);
+
+            // Re-highlight active TTS sentence if TTS is active
+            if (showTts && ttsSentences[ttsSentenceIndex]) {
+              setTimeout(() => {
+                const contents: any = renditionRef.current?.getContents();
+                const item = Array.isArray(contents) ? contents[0] : contents;
+                if (item?.document) {
+                  highlightSentenceAndDetermineTurn(
+                    item.document,
+                    ttsSentences[ttsSentenceIndex],
+                    true,
+                    settings.flow !== 'scrolled-doc',
+                    item
+                  );
+                }
+              }, 100);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Lỗi resize rendition khi toggle thanh công cụ:', err);
+      }
+    }, 60);
+
+    return () => clearTimeout(timer);
+  }, [showBars]);
+
   return (
-    <div className={`reader-container reader-theme-${settings.theme}`}>
+    <div className={`reader-container reader-theme-${settings.theme} ${!showBars ? 'bars-hidden' : ''}`}>
       {/* Top Floating Control Bar */}
       <header className={`reader-top-bar ${!showBars ? 'hidden' : ''}`}>
         <div className="reader-bar-left">
