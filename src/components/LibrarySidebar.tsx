@@ -12,7 +12,6 @@ import {
   Download,
   Upload,
   Layers,
-  FileType,
 } from 'lucide-react';
 import type { Collection, AuthorGroup } from '../types';
 
@@ -24,8 +23,7 @@ export type LibraryCategory =
   | 'have_read'
   | 'authors'
   | 'collections'
-  | 'quotes'
-  | 'formats';
+  | 'quotes';
 
 interface LibrarySidebarProps {
   currentCategory: LibraryCategory;
@@ -38,9 +36,6 @@ interface LibrarySidebarProps {
   authorGroups: AuthorGroup[];
   selectedAuthor?: string;
   onSelectAuthor: (author: string) => void;
-  selectedFormat?: 'all' | 'epub' | 'txt';
-  onSelectFormat?: (format: 'all' | 'epub' | 'txt') => void;
-  formatCounts?: { epub: number; txt: number };
   counts: {
     all: number;
     reading: number;
@@ -66,9 +61,6 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
   authorGroups,
   selectedAuthor,
   onSelectAuthor,
-  selectedFormat,
-  onSelectFormat,
-  formatCounts,
   counts,
   onExportBackup,
   onImportBackup,
@@ -285,57 +277,6 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
             );
           })}
         </ul>
-      </div>
-
-      {/* Định dạng */}
-      <div className="sidebar-section">
-        <button
-          className={`sidebar-section-header ${currentCategory === 'formats' ? 'active' : ''}`}
-          onClick={() => {
-            onSelectCategory('formats');
-            if (onCloseMobile) onCloseMobile();
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <FileType size={16} />
-            <span>Định dạng sách</span>
-          </div>
-        </button>
-
-        {currentCategory === 'formats' && (
-          <ul className="sidebar-sub-list">
-            <li>
-              <button
-                className={`sidebar-sub-btn ${!selectedFormat || selectedFormat === 'all' ? 'active' : ''}`}
-                onClick={() => onSelectFormat && onSelectFormat('all')}
-              >
-                <span>Tất cả</span>
-              </button>
-            </li>
-            <li>
-              <button
-                className={`sidebar-sub-btn ${selectedFormat === 'epub' ? 'active' : ''}`}
-                onClick={() => onSelectFormat && onSelectFormat('epub')}
-              >
-                <span>EPUB</span>
-                <span className="sidebar-count" style={{ marginLeft: 'auto' }}>
-                  {formatCounts?.epub || 0}
-                </span>
-              </button>
-            </li>
-            <li>
-              <button
-                className={`sidebar-sub-btn ${selectedFormat === 'txt' ? 'active' : ''}`}
-                onClick={() => onSelectFormat && onSelectFormat('txt')}
-              >
-                <span>TXT</span>
-                <span className="sidebar-count" style={{ marginLeft: 'auto' }}>
-                  {formatCounts?.txt || 0}
-                </span>
-              </button>
-            </li>
-          </ul>
-        )}
       </div>
 
       {/* Backup & Restore */}

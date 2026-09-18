@@ -19,7 +19,6 @@ import {
   DEFAULT_SETTINGS,
 } from './services/storage';
 import { importEpubFile, importSampleBook } from './services/epubService';
-import { importTxtFile } from './services/txtService';
 import { Header } from './components/Header';
 import { LibraryView } from './components/LibraryView';
 import { ReaderView } from './components/ReaderView';
@@ -72,25 +71,20 @@ export function App() {
     }
   };
 
-  // Upload new EPUB or TXT file
+  // Upload new EPUB file
   const handleUploadFile = async (file: File) => {
     try {
       setIsLoadingBook(true);
-      let newBook: BookRecord;
-      const lower = file.name.toLowerCase();
-      if (lower.endsWith('.txt')) {
-        newBook = await importTxtFile(file);
-      } else if (lower.endsWith('.epub')) {
-        newBook = await importEpubFile(file);
-      } else {
-        alert('Định dạng file không được hỗ trợ. Vui lòng chọn file .epub hoặc .txt.');
+      if (!file.name.toLowerCase().endsWith('.epub')) {
+        alert('Định dạng file không được hỗ trợ. Vui lòng chọn file sách .epub.');
         return;
       }
+      const newBook = await importEpubFile(file);
       await refreshAll();
       await handleSelectBook(newBook);
     } catch (err) {
       console.error('Lỗi import sách:', err);
-      alert('Không thể đọc file sách này. Vui lòng kiểm tra lại định dạng file (.epub hoặc .txt).');
+      alert('Không thể đọc file sách này. Vui lòng kiểm tra lại file EPUB.');
     } finally {
       setIsLoadingBook(false);
     }
@@ -106,24 +100,6 @@ export function App() {
     } catch (err) {
       console.error('Lỗi nạp sách mẫu:', err);
       alert('Không thể tải sách mẫu.');
-    } finally {
-      setIsLoadingSample(false);
-    }
-  };
-
-  // Load sample TXT book (Chí Phèo)
-  const handleLoadSampleTxt = async () => {
-    try {
-      setIsLoadingSample(true);
-      const res = await fetch('/sample-truyen.txt');
-      const text = await res.text();
-      const file = new File([text], 'Chí Phèo - Nam Cao.txt', { type: 'text/plain' });
-      const newBook = await importTxtFile(file);
-      await refreshAll();
-      await handleSelectBook(newBook);
-    } catch (err) {
-      console.error('Lỗi nạp truyện mẫu TXT:', err);
-      alert('Không thể nạp truyện mẫu TXT.');
     } finally {
       setIsLoadingSample(false);
     }
@@ -259,7 +235,6 @@ export function App() {
             onSetBookCollections={handleSetBookCollections}
             onUploadFile={handleUploadFile}
             onLoadSample={handleLoadSample}
-            onLoadSampleTxt={handleLoadSampleTxt}
             onCreateCollection={handleCreateCollection}
             onDeleteCollection={handleDeleteCollection}
             onDeleteHighlight={handleDeleteHighlight}

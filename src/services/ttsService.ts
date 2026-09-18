@@ -1,10 +1,4 @@
-import { Capacitor, registerPlugin } from '@capacitor/core';
-import { TextToSpeech } from '@capacitor-community/text-to-speech';
 
-interface AppHelperPlugin {
-  openTtsSettings(): Promise<void>;
-}
-const AppHelper = registerPlugin<AppHelperPlugin>('AppHelper');
 
 export interface TtsVoice {
   id: string;
@@ -232,7 +226,6 @@ class BackgroundAudioKeeper {
 }
 
 class TtsServiceManager {
-  private isNative = Capacitor.isNativePlatform();
   private sentences: string[] = [];
   private currentIndex = 0;
   private isPlaying = false;
@@ -270,45 +263,8 @@ class TtsServiceManager {
     this.beforeSpeakHook = hook;
   }
 
-  // --- Voice discovery ---
+  // --- Voice discovery (Web Speech API) ---
   public async getAvailableVoices(): Promise<TtsVoice[]> {
-    if (this.isNative) {
-      try {
-        const res = await TextToSpeech.getSupportedVoices();
-        if (res && res.voices && res.voices.length > 0) {
-          const list: TtsVoice[] = res.voices.map((v, index) => {
-            const formatted = formatVoiceLabel(v.name, v.voiceURI, v.lang, index);
-            return {
-              id: index.toString(),
-              name: formatted.name,
-              rawName: v.name,
-              lang: v.lang,
-              isVietnamese: Boolean(
-                v.lang.toLowerCase().startsWith('vi') ||
-                (v.voiceURI && v.voiceURI.toLowerCase().includes('vi'))
-              ),
-              isNatural: formatted.isNatural,
-              engine: formatted.engine,
-            };
-          });
-
-          // Sort Vietnamese first (with natural voices prioritized), then other languages
-          return list.sort((a, b) => {
-            if (a.isVietnamese && !b.isVietnamese) return -1;
-            if (!a.isVietnamese && b.isVietnamese) return 1;
-            if (a.isVietnamese && b.isVietnamese) {
-              if (a.isNatural && !b.isNatural) return -1;
-              if (!a.isNatural && b.isNatural) return 1;
-            }
-            return a.name.localeCompare(b.name);
-          });
-        }
-      } catch (err) {
-        console.warn('Lỗi lấy giọng đọc native:', err);
-      }
-    }
-
-    // Web Speech API fallback
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       const getWebVoices = (): SpeechSynthesisVoice[] => {
         return window.speechSynthesis.getVoices();
@@ -355,22 +311,9 @@ class TtsServiceManager {
     return [];
   }
 
-  // --- Open Android/System TTS Settings (Samsung, Google, etc.) ---
+  // --- Open System TTS Settings ---
   public async openTtsSettings(): Promise<void> {
-    if (this.isNative) {
-      try {
-        await AppHelper.openTtsSettings();
-        return;
-      } catch (err) {
-        console.warn('Lỗi AppHelper.openTtsSettings, fallback TextToSpeech.openInstall:', err);
-        try {
-          await TextToSpeech.openInstall();
-          return;
-        } catch { }
-      }
-    } else {
-      alert('Tùy chỉnh Engine (Samsung, Google...) chỉ khả dụng trên thiết bị Android / iOS.');
-    }
+    alert('Trình duyệt web sử dụng danh sách giọng đọc TTS hệ thống có sẵn trên máy tính / điện thoại của bạn.');
   }
 
   // --- Metadata & MediaSession ---
@@ -590,7 +533,7 @@ class TtsServiceManager {
     // 'compact' is ~25ms (flowing reading with minimal gap)
     // 'relaxed' is ~160ms (slower contemplation pause)
     let baseMs = 75;
-    if (this.pauseMode === 'compact') baseMs = 15;
+    if (this.pauseMode === 'compact') baseMs = 5;
     else if (this.pauseMode === 'relaxed') baseMs = 160;
 
     // Sub-clauses ending with comma, semicolon, or colon need even less pause
@@ -598,7 +541,7 @@ class TtsServiceManager {
       baseMs = Math.round(baseMs * 0.45);
     }
 
-    return Math.max(15, Math.round(baseMs / this.rate));
+    return Math.max(5, Math.round(baseMs / this.rate));
   }
 
   // --- Sleep Timer ---
@@ -713,37 +656,7 @@ class TtsServiceManager {
     // Abort if playback was stopped, paused, or sentence changed while hook was running
     if (this.speechSessionId !== sessionId || !this.isPlaying || this.isPaused) return;
 
-    if (this.isNative) {
-      try {
-        await TextToSpeech.speak({
-          text: text.trim(),
-          lang: 'vi-VN',
-          rate: this.rate,
-          pitch: this.pitch,
-          volume: 1.0,
-          category: 'playback',
-          voice: this.selectedVoiceId ? parseInt(this.selectedVoiceId, 10) || undefined : undefined,
-        });
-
-        // Finished speaking this sentence
-        if (this.speechSessionId === sessionId && this.isPlaying && !this.isPaused) {
-          const pauseMs = this.getSentencePauseDuration(text);
-          await this.sentencePause(pauseMs, sessionId);
-          if (this.speechSessionId === sessionId && this.isPlaying && !this.isPaused) {
-            this.nextSentence();
-          }
-        }
-      } catch (err) {
-        // Only fallback if this speech session is still valid and actively playing
-        if (this.speechSessionId !== sessionId || !this.isPlaying || this.isPaused) {
-          return;
-        }
-        console.warn('Lỗi native TTS speak, fallback sang web:', err);
-        this.speakWebSpeech(text, sessionId);
-      }
-    } else {
-      this.speakWebSpeech(text, sessionId);
-    }
+    this.speakWebSpeech(text, sessionId);
   }
 
   private speakWebSpeech(text: string, sessionId: number) {
@@ -818,11 +731,6 @@ class TtsServiceManager {
   private stopSpeakingInternal() {
     this.clearWebSpeechKeepAlive();
     this.clearPendingPause();
-    if (this.isNative) {
-      try {
-        TextToSpeech.stop().catch(() => { });
-      } catch { }
-    }
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
     }

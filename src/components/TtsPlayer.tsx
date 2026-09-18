@@ -428,7 +428,7 @@ export const TtsPlayer: React.FC<TtsPlayerProps> = ({
                     <span>Khoảng ngắt giữa câu</span>
                   </label>
                   <span className="tts-slider-value">
-                    {pauseMode === 'compact' ? 'Gọn gàng (~25ms)' : pauseMode === 'relaxed' ? 'Thong thả (~160ms)' : 'Tự nhiên (~70ms)'}
+                    {pauseMode === 'compact' ? 'Gọn gàng (~5ms)' : pauseMode === 'relaxed' ? 'Thong thả (~160ms)' : 'Tự nhiên (~70ms)'}
                   </span>
                 </div>
                 <div className="tts-chip-row">

@@ -7,16 +7,9 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview",
-    "build:android": "npm run build && npx cap sync android",
-    "cap:sync": "npx cap sync android",
-    "cap:open": "npx cap open android"
+    "preview": "vite preview"
   },
   "dependencies": {
-    "@capacitor-community/text-to-speech": "^8.0.2",
-    "@capacitor/android": "^8.5.2",
-    "@capacitor/cli": "^8.5.2",
-    "@capacitor/core": "^8.5.2",
     "epubjs": "^0.3.93",
     "idb-keyval": "^6.3.0",
     "jszip": "^3.10.2",

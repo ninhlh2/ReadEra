@@ -6,7 +6,6 @@ import {
   UploadCloud,
   Sparkles,
   Menu,
-  FileText,
   BookmarkCheck,
   CheckCircle,
   FolderPlus,
@@ -28,7 +27,6 @@ interface LibraryViewProps {
   onSetBookCollections: (bookId: string, colIds: string[]) => void;
   onUploadFile: (file: File) => void;
   onLoadSample: () => void;
-  onLoadSampleTxt?: () => void;
   onCreateCollection: (name: string, color: string) => void;
   onDeleteCollection: (id: string) => void;
   onDeleteHighlight: (id: string) => void;
@@ -50,7 +48,6 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   onSetBookCollections,
   onUploadFile,
   onLoadSample,
-  onLoadSampleTxt,
   onCreateCollection,
   onDeleteCollection,
   onDeleteHighlight,
@@ -63,7 +60,6 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   const [currentCategory, setCurrentCategory] = useState<LibraryCategory>('all');
   const [selectedCollectionId, setSelectedCollectionId] = useState<string | undefined>();
   const [selectedAuthor, setSelectedAuthor] = useState<string | undefined>();
-  const [selectedFormat, setSelectedFormat] = useState<'all' | 'epub' | 'txt'>('all');
   const [sortBy, setSortBy] = useState<'recent' | 'title' | 'author'>('recent');
   const [isDragOver, setIsDragOver] = useState(false);
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
@@ -99,12 +95,6 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     quotes: highlights.length,
   };
 
-  // Calculate format counts
-  const formatCounts = {
-    epub: books.filter((b) => b.fileFormat === 'epub' || (!b.fileFormat && !b.title.toLowerCase().endsWith('.txt'))).length,
-    txt: books.filter((b) => b.fileFormat === 'txt' || b.title.toLowerCase().endsWith('.txt')).length,
-  };
-
   // Drag & drop handlers
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -119,7 +109,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     e.preventDefault();
     setIsDragOver(false);
     const file = e.dataTransfer.files?.[0];
-    if (file && (file.name.toLowerCase().endsWith('.epub') || file.name.toLowerCase().endsWith('.txt'))) {
+    if (file && file.name.toLowerCase().endsWith('.epub')) {
       onUploadFile(file);
     }
   };
@@ -152,15 +142,6 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     if (currentCategory === 'collections') {
       if (selectedCollectionId) {
         return book.collectionIds && book.collectionIds.includes(selectedCollectionId);
-      }
-      return true;
-    }
-    if (currentCategory === 'formats') {
-      if (selectedFormat && selectedFormat !== 'all') {
-        const isTxt = book.fileFormat === 'txt' || book.title.toLowerCase().endsWith('.txt');
-        const isEpub = !isTxt;
-        if (selectedFormat === 'txt') return isTxt;
-        if (selectedFormat === 'epub') return isEpub;
       }
       return true;
     }
@@ -198,10 +179,6 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         const col = collections.find((c) => c.id === selectedCollectionId);
         return col ? `Bộ sưu tập: ${col.name}` : 'Bộ sưu tập';
       }
-      case 'formats':
-        return selectedFormat && selectedFormat !== 'all'
-          ? `Định dạng: ${selectedFormat.toUpperCase()}`
-          : 'Tất cả định dạng sách';
       case 'quotes':
         return 'Trích dẫn & Ghi chú tổng hợp';
       default:
@@ -229,9 +206,6 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         authorGroups={authorGroups}
         selectedAuthor={selectedAuthor}
         onSelectAuthor={setSelectedAuthor}
-        selectedFormat={selectedFormat}
-        onSelectFormat={setSelectedFormat}
-        formatCounts={formatCounts}
         counts={counts}
         onExportBackup={onExportBackup}
         onImportBackup={onImportBackup}
@@ -389,7 +363,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
               {books.length === 0 ? 'Thư viện chưa có cuốn sách nào' : 'Không có sách trong mục này'}
             </h3>
             <p className="empty-desc">
-              Kéo thả file sách <strong>.EPUB</strong> hoặc <strong>.TXT</strong> vào đây hoặc tải sách mẫu để trải nghiệm ngay.
+              Kéo thả file sách <strong>.EPUB</strong> vào đây hoặc tải sách mẫu để trải nghiệm ngay.
             </p>
             {books.length === 0 && (
               <div className="empty-actions">
@@ -397,12 +371,6 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                   <Sparkles size={16} />
                   <span>{isLoadingSample ? 'Đang nạp...' : 'Tải sách mẫu (EPUB)'}</span>
                 </button>
-                {onLoadSampleTxt && (
-                  <button className="btn-secondary" onClick={onLoadSampleTxt} disabled={isLoadingSample}>
-                    <FileText size={16} style={{ color: '#10b981' }} />
-                    <span>Tải truyện mẫu (TXT)</span>
-                  </button>
-                )}
               </div>
             )}
           </div>
@@ -423,36 +391,10 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                       <img src={book.coverUrl} alt={book.title} className="book-cover-img" loading="lazy" />
                     ) : (
                       <div className="book-cover-placeholder">
-                        {book.fileFormat === 'txt' ? (
-                          <FileText className="book-cover-placeholder-icon" color="#10b981" />
-                        ) : (
-                          <BookIcon className="book-cover-placeholder-icon" />
-                        )}
+                        <BookIcon className="book-cover-placeholder-icon" />
                         <span className="book-cover-placeholder-title">{book.title}</span>
                       </div>
                     )}
-
-                    {/* Format badge */}
-                    <span
-                      style={{
-                        position: 'absolute',
-                        top: 10,
-                        left: 10,
-                        fontSize: 10,
-                        fontWeight: 700,
-                        padding: '2px 6px',
-                        borderRadius: 4,
-                        background: 'rgba(0,0,0,0.65)',
-                        color:
-                          book.fileFormat === 'txt'
-                            ? '#34d399'
-                            : '#818cf8',
-                        backdropFilter: 'blur(6px)',
-                        border: '1px solid rgba(255,255,255,0.1)',
-                      }}
-                    >
-                      {book.fileFormat === 'txt' ? 'TXT' : 'EPUB'}
-                    </span>
 
                     {/* Favorite star */}
                     <button
