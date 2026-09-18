@@ -89,8 +89,26 @@ export const FONT_OPTIONS: {
   {
     id: 'literata',
     label: 'Literata',
-    sublabel: 'Serif điện tử Google',
+    sublabel: 'Serif điện tử Google Books',
     fontFamilyCSS: "'Literata', Georgia, serif",
+  },
+  {
+    id: 'crimson',
+    label: 'Crimson Pro',
+    sublabel: 'Serif cổ điển trang nhã',
+    fontFamilyCSS: "'Crimson Pro', Georgia, serif",
+  },
+  {
+    id: 'lora',
+    label: 'Lora',
+    sublabel: 'Serif cân bằng, dễ đọc lâu',
+    fontFamilyCSS: "'Lora', Georgia, serif",
+  },
+  {
+    id: 'sourceserif',
+    label: 'Source Serif 4',
+    sublabel: 'Serif hiện đại, Adobe',
+    fontFamilyCSS: "'Source Serif 4', Georgia, serif",
   },
   {
     id: 'merriweather',
@@ -103,6 +121,12 @@ export const FONT_OPTIONS: {
     label: 'Inter',
     sublabel: 'Sans-serif hiện đại, rõ nét',
     fontFamilyCSS: "'Inter', sans-serif",
+  },
+  {
+    id: 'nunito',
+    label: 'Nunito',
+    sublabel: 'Sans-serif tròn, nhẹ mắt',
+    fontFamilyCSS: "'Nunito', sans-serif",
   },
   {
     id: 'mono',

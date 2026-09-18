@@ -70,9 +70,8 @@ export function splitIntoSentences(rawText: string): string[] {
   // Protect ellipsis
   protectedText = protectedText.replace(/\.{3,}/g, '__ELLIPSIS__');
 
-  // Split on sentence boundaries: (. ! ? or newline) followed by space or quote or end
-  // Also preserve dialog quotes
-  const rawChunks = protectedText.split(/(?<=[.!?\n])\s+/);
+  // Split on sentence boundaries: (. ! ? or newline) optionally followed by closing quotes, then space
+  const rawChunks = protectedText.split(/(?<=[.!?\n]["'”’]?)\s+/);
 
   const sentences: string[] = [];
 
@@ -237,6 +236,10 @@ class TtsServiceManager {
   // Web speech fallback ref
   private keepAliveInterval: any = null;
 
+  // Speaking session control (cancels stale speak loops)
+  private speechSessionId = 0;
+  private pendingPauseTimer: any = null;
+
   // Callbacks
   private onSentenceChangeListeners: Array<(index: number, text: string, progressRatio: number) => void> = [];
   private onPlaybackStateChangeListeners: Array<(isPlaying: boolean, isPaused: boolean) => void> = [];
@@ -398,6 +401,8 @@ class TtsServiceManager {
 
   // --- Queue & Sentence Management ---
   public loadSentences(sentences: string[], startIndex = 0) {
+    this.speechSessionId++;
+    this.clearPendingPause();
     this.stopSpeakingInternal();
     this.sentences = sentences;
     this.currentIndex = Math.max(0, Math.min(startIndex, Math.max(0, sentences.length - 1)));
@@ -438,6 +443,8 @@ class TtsServiceManager {
   }
 
   public async pause() {
+    this.speechSessionId++;
+    this.clearPendingPause();
     if (!this.isPlaying || this.isPaused) return;
 
     this.isPaused = true;
@@ -458,6 +465,8 @@ class TtsServiceManager {
   }
 
   public async stop() {
+    this.speechSessionId++;
+    this.clearPendingPause();
     this.isPlaying = false;
     this.isPaused = false;
     this.audioKeeper.stop();
@@ -467,6 +476,8 @@ class TtsServiceManager {
   }
 
   public nextSentence() {
+    this.speechSessionId++;
+    this.clearPendingPause();
     if (this.currentIndex < this.sentences.length - 1) {
       this.currentIndex++;
       this.notifySentenceChange();
@@ -480,6 +491,8 @@ class TtsServiceManager {
   }
 
   public prevSentence() {
+    this.speechSessionId++;
+    this.clearPendingPause();
     if (this.currentIndex > 0) {
       this.currentIndex--;
       this.notifySentenceChange();
@@ -490,6 +503,8 @@ class TtsServiceManager {
   }
 
   public jumpToSentence(index: number) {
+    this.speechSessionId++;
+    this.clearPendingPause();
     if (index >= 0 && index < this.sentences.length) {
       this.currentIndex = index;
       this.notifySentenceChange();
@@ -593,12 +608,37 @@ class TtsServiceManager {
     }
   }
 
+  // --- Pause Between Sentences Helper ---
+  private sentencePause(ms: number, sessionId: number): Promise<void> {
+    return new Promise((resolve) => {
+      this.clearPendingPause();
+      this.pendingPauseTimer = setTimeout(() => {
+        this.pendingPauseTimer = null;
+        if (this.speechSessionId === sessionId) {
+          resolve();
+        }
+      }, ms);
+    });
+  }
+
+  private clearPendingPause() {
+    if (this.pendingPauseTimer) {
+      clearTimeout(this.pendingPauseTimer);
+      this.pendingPauseTimer = null;
+    }
+  }
+
   // --- Core Speaking Implementation ---
   private async speakCurrentSentence() {
     if (!this.isPlaying || this.isPaused) return;
+    const sessionId = ++this.speechSessionId;
+    this.clearPendingPause();
+
     const text = this.sentences[this.currentIndex];
     if (!text || !text.trim()) {
-      this.nextSentence();
+      if (this.speechSessionId === sessionId && this.isPlaying && !this.isPaused) {
+        this.nextSentence();
+      }
       return;
     }
 
@@ -617,7 +657,8 @@ class TtsServiceManager {
       }
     }
 
-    if (!this.isPlaying || this.isPaused) return;
+    // Abort if playback was stopped, paused, or sentence changed while hook was running
+    if (this.speechSessionId !== sessionId || !this.isPlaying || this.isPaused) return;
 
     if (this.isNative) {
       try {
@@ -632,20 +673,30 @@ class TtsServiceManager {
         });
 
         // Finished speaking this sentence
-        if (this.isPlaying && !this.isPaused) {
-          this.nextSentence();
+        if (this.speechSessionId === sessionId && this.isPlaying && !this.isPaused) {
+          // Natural breath pause between sentences (proportional to playback rate)
+          const pauseMs = Math.max(160, Math.round(280 / this.rate));
+          await this.sentencePause(pauseMs, sessionId);
+          if (this.speechSessionId === sessionId && this.isPlaying && !this.isPaused) {
+            this.nextSentence();
+          }
         }
       } catch (err) {
+        // Only fallback if this speech session is still valid and actively playing
+        if (this.speechSessionId !== sessionId || !this.isPlaying || this.isPaused) {
+          return;
+        }
         console.warn('Lỗi native TTS speak, fallback sang web:', err);
-        this.speakWebSpeech(text);
+        this.speakWebSpeech(text, sessionId);
       }
     } else {
-      this.speakWebSpeech(text);
+      this.speakWebSpeech(text, sessionId);
     }
   }
 
-  private speakWebSpeech(text: string) {
+  private speakWebSpeech(text: string, sessionId: number) {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    if (this.speechSessionId !== sessionId || !this.isPlaying || this.isPaused) return;
 
     window.speechSynthesis.cancel();
 
@@ -664,18 +715,25 @@ class TtsServiceManager {
       if (vi) utterance.voice = vi;
     }
 
-    utterance.onend = () => {
+    utterance.onend = async () => {
       this.clearWebSpeechKeepAlive();
-      if (this.isPlaying && !this.isPaused) {
-        this.nextSentence();
+      if (this.speechSessionId === sessionId && this.isPlaying && !this.isPaused) {
+        const pauseMs = Math.max(160, Math.round(280 / this.rate));
+        await this.sentencePause(pauseMs, sessionId);
+        if (this.speechSessionId === sessionId && this.isPlaying && !this.isPaused) {
+          this.nextSentence();
+        }
       }
     };
 
     utterance.onerror = (e) => {
       this.clearWebSpeechKeepAlive();
+      if (this.speechSessionId !== sessionId || !this.isPlaying || this.isPaused) {
+        return;
+      }
       if (e.error !== 'canceled' && e.error !== 'interrupted') {
         console.warn('Lỗi Web Speech API:', e.error);
-        if (this.isPlaying && !this.isPaused) {
+        if (this.speechSessionId === sessionId && this.isPlaying && !this.isPaused) {
           this.nextSentence();
         }
       }
@@ -707,6 +765,7 @@ class TtsServiceManager {
 
   private stopSpeakingInternal() {
     this.clearWebSpeechKeepAlive();
+    this.clearPendingPause();
     if (this.isNative) {
       try {
         TextToSpeech.stop().catch(() => {});
@@ -718,7 +777,15 @@ class TtsServiceManager {
   }
 
   private handleListComplete() {
+    this.speechSessionId++;
+    this.clearPendingPause();
+
     if (this.sleepTimerMode === 'end_of_chapter') {
+      this.stop();
+      return;
+    }
+
+    if (this.onChapterCompleteListeners.length === 0) {
       this.stop();
       return;
     }

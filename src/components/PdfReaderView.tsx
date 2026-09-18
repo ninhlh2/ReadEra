@@ -30,7 +30,7 @@ import { extractPdfToc } from '../services/pdfService';
 import { TocDrawer } from './TocDrawer';
 import { BookmarksDrawer } from './BookmarksDrawer';
 import { TtsPlayer } from './TtsPlayer';
-import { splitIntoSentences } from '../services/ttsService';
+import { splitIntoSentences, ttsService } from '../services/ttsService';
 
 interface PdfReaderViewProps {
   book: BookRecord;
@@ -50,6 +50,7 @@ export const PdfReaderView: React.FC<PdfReaderViewProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const pdfDocRef = useRef<pdfjsLib.PDFDocumentProxy | null>(null);
+  const lastTtsPageRef = useRef<number>(book.currentPage || 1);
 
   const [settings, setSettings] = useState<ReadingSettings>(initialSettings);
   const [currentPage, setCurrentPage] = useState<number>(book.currentPage || 1);
@@ -205,6 +206,7 @@ export const PdfReaderView: React.FC<PdfReaderViewProps> = ({
   };
 
   const handleStartPdfTts = async () => {
+    lastTtsPageRef.current = currentPage;
     const sentences = await extractPdfPageSentences(currentPage);
     if (sentences.length > 0) {
       setTtsSentences(sentences);
@@ -212,6 +214,18 @@ export const PdfReaderView: React.FC<PdfReaderViewProps> = ({
       setShowTts(true);
     } else {
       alert('Không tìm thấy văn bản để đọc trên trang này (có thể là trang scan hình ảnh).');
+    }
+  };
+
+  const handlePdfPlayResume = async () => {
+    if (currentPage !== lastTtsPageRef.current) {
+      lastTtsPageRef.current = currentPage;
+      const sentences = await extractPdfPageSentences(currentPage);
+      if (sentences.length > 0) {
+        setTtsSentences(sentences);
+        setTtsSentenceIndex(0);
+        ttsService.loadSentences(sentences, 0);
+      }
     }
   };
 
@@ -223,14 +237,17 @@ export const PdfReaderView: React.FC<PdfReaderViewProps> = ({
     if (currentPage < totalPages) {
       const nextPageNum = currentPage + 1;
       goToPage(nextPageNum);
+      lastTtsPageRef.current = nextPageNum;
       const nextSentences = await extractPdfPageSentences(nextPageNum);
       if (nextSentences.length > 0) {
         setTtsSentences(nextSentences);
         setTtsSentenceIndex(0);
       } else {
+        ttsService.stop();
         setShowTts(false);
       }
     } else {
+      ttsService.stop();
       setShowTts(false);
     }
   };
@@ -530,8 +547,12 @@ export const PdfReaderView: React.FC<PdfReaderViewProps> = ({
           sentences={ttsSentences}
           initialSentenceIndex={ttsSentenceIndex}
           onSentenceChange={handlePdfSentenceChange}
-          onClose={() => setShowTts(false)}
+          onClose={() => {
+            ttsService.stop();
+            setShowTts(false);
+          }}
           onNextChapter={handlePdfNextPageTts}
+          onPlayResume={handlePdfPlayResume}
         />
       )}
 

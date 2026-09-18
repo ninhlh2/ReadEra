@@ -1,6 +1,7 @@
 export type ReadingTheme = 'light' | 'sepia' | 'dark' | 'black' | 'nord' | 'forest';
 
-export type FontFamily = 'literata' | 'merriweather' | 'inter' | 'mono';
+export type FontFamily = 'literata' | 'merriweather' | 'inter' | 'mono' | 'crimson' | 'sourceserif' | 'lora' | 'nunito';
+
 
 export type FlowMode = 'paginated' | 'scrolled-doc';
 

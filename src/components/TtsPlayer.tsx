@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Play,
   Pause,
@@ -27,6 +27,7 @@ interface TtsPlayerProps {
   onClose: () => void;
   onNextChapter?: () => void;
   onPrevChapter?: () => void;
+  onPlayResume?: () => Promise<void> | void;
 }
 
 export const TtsPlayer: React.FC<TtsPlayerProps> = ({
@@ -39,6 +40,7 @@ export const TtsPlayer: React.FC<TtsPlayerProps> = ({
   onSentenceChange,
   onClose,
   onNextChapter,
+  onPlayResume,
 }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -107,18 +109,35 @@ export const TtsPlayer: React.FC<TtsPlayerProps> = ({
     };
   }, [onSentenceChange, onNextChapter]);
 
+  // Ensure TTS stops when player is unmounted/closed
+  useEffect(() => {
+    return () => {
+      ttsService.stop();
+    };
+  }, []);
+
+  const lastLoadedSentencesRef = useRef<string[] | null>(null);
+
   // When sentences change (e.g. new chapter loaded or opened)
   useEffect(() => {
-    if (sentences.length > 0) {
+    if (sentences.length > 0 && sentences !== lastLoadedSentencesRef.current) {
+      lastLoadedSentencesRef.current = sentences;
       ttsService.loadSentences(sentences, initialSentenceIndex);
       ttsService.play();
     }
-  }, [sentences, initialSentenceIndex]);
+  }, [sentences]);
 
-  const handleTogglePlay = () => {
+  const handleTogglePlay = async () => {
     if (isPlaying && !isPaused) {
       ttsService.pause();
     } else {
+      if (onPlayResume) {
+        try {
+          await onPlayResume();
+        } catch (err) {
+          console.warn('Lỗi onPlayResume:', err);
+        }
+      }
       ttsService.play();
     }
   };
