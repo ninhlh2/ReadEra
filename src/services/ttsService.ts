@@ -91,6 +91,56 @@ export function splitIntoSentences(rawText: string): string[] {
   return sentences;
 }
 
+/**
+ * Background audio keeper: Keeps the audio hardware pipeline and CPU active
+ * when the Android screen is turned off or app is minimized.
+ */
+class BackgroundAudioKeeper {
+  private audioEl: HTMLAudioElement | null = null;
+  private wakeLock: any = null;
+
+  public start() {
+    try {
+      if (!this.audioEl && typeof Audio !== 'undefined') {
+        this.audioEl = new Audio();
+        // 1-second silent WAV in base64
+        this.audioEl.src =
+          'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+        this.audioEl.loop = true;
+        this.audioEl.volume = 0.01;
+      }
+      if (this.audioEl) {
+        this.audioEl.play().catch(() => {});
+      }
+    } catch {}
+
+    try {
+      if (typeof navigator !== 'undefined' && 'wakeLock' in navigator && (navigator as any).wakeLock) {
+        (navigator as any).wakeLock
+          .request('screen')
+          .then((lock: any) => {
+            this.wakeLock = lock;
+          })
+          .catch(() => {});
+      }
+    } catch {}
+  }
+
+  public stop() {
+    try {
+      if (this.audioEl) {
+        this.audioEl.pause();
+      }
+    } catch {}
+    try {
+      if (this.wakeLock) {
+        this.wakeLock.release().catch(() => {});
+        this.wakeLock = null;
+      }
+    } catch {}
+  }
+}
+
 class TtsServiceManager {
   private isNative = Capacitor.isNativePlatform();
   private sentences: string[] = [];
@@ -101,6 +151,7 @@ class TtsServiceManager {
   private pitch = 1.0;
   private selectedVoiceId: string | null = null;
   private metadata: TtsMetadata = { title: 'ReadEra' };
+  private audioKeeper = new BackgroundAudioKeeper();
 
   // Timer
   private sleepTimerMode: SleepTimerMode = 'off';
@@ -252,6 +303,7 @@ class TtsServiceManager {
 
     this.isPlaying = true;
     this.isPaused = false;
+    this.audioKeeper.start();
     this.notifyPlaybackState();
     this.speakCurrentSentence();
   }
@@ -260,6 +312,7 @@ class TtsServiceManager {
     if (!this.isPlaying || this.isPaused) return;
 
     this.isPaused = true;
+    this.audioKeeper.stop();
     this.stopSpeakingInternal();
     this.notifyPlaybackState();
   }
@@ -270,6 +323,7 @@ class TtsServiceManager {
       return;
     }
     this.isPaused = false;
+    this.audioKeeper.start();
     this.notifyPlaybackState();
     this.speakCurrentSentence();
   }
@@ -277,6 +331,7 @@ class TtsServiceManager {
   public async stop() {
     this.isPlaying = false;
     this.isPaused = false;
+    this.audioKeeper.stop();
     this.stopSpeakingInternal();
     this.clearSleepTimer();
     this.notifyPlaybackState();
