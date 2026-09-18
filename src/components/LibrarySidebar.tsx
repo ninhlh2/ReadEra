@@ -38,9 +38,9 @@ interface LibrarySidebarProps {
   authorGroups: AuthorGroup[];
   selectedAuthor?: string;
   onSelectAuthor: (author: string) => void;
-  selectedFormat?: 'all' | 'epub' | 'pdf' | 'txt';
-  onSelectFormat?: (format: 'all' | 'epub' | 'pdf' | 'txt') => void;
-  formatCounts?: { epub: number; pdf: number; txt: number };
+  selectedFormat?: 'all' | 'epub' | 'txt';
+  onSelectFormat?: (format: 'all' | 'epub' | 'txt') => void;
+  formatCounts?: { epub: number; txt: number };
   counts: {
     all: number;
     reading: number;
@@ -320,17 +320,6 @@ export const LibrarySidebar: React.FC<LibrarySidebarProps> = ({
                 <span>EPUB</span>
                 <span className="sidebar-count" style={{ marginLeft: 'auto' }}>
                   {formatCounts?.epub || 0}
-                </span>
-              </button>
-            </li>
-            <li>
-              <button
-                className={`sidebar-sub-btn ${selectedFormat === 'pdf' ? 'active' : ''}`}
-                onClick={() => onSelectFormat && onSelectFormat('pdf')}
-              >
-                <span>PDF</span>
-                <span className="sidebar-count" style={{ marginLeft: 'auto' }}>
-                  {formatCounts?.pdf || 0}
                 </span>
               </button>
             </li>

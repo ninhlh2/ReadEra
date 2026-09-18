@@ -20,11 +20,9 @@ import {
 } from './services/storage';
 import { importEpubFile, importSampleBook } from './services/epubService';
 import { importTxtFile } from './services/txtService';
-import { importPdfFile } from './services/pdfService';
 import { Header } from './components/Header';
 import { LibraryView } from './components/LibraryView';
 import { ReaderView } from './components/ReaderView';
-import { PdfReaderView } from './components/PdfReaderView';
 
 export function App() {
   const [books, setBooks] = useState<BookRecord[]>([]);
@@ -74,24 +72,25 @@ export function App() {
     }
   };
 
-  // Upload new EPUB, PDF or TXT file
+  // Upload new EPUB or TXT file
   const handleUploadFile = async (file: File) => {
     try {
       setIsLoadingBook(true);
       let newBook: BookRecord;
       const lower = file.name.toLowerCase();
-      if (lower.endsWith('.pdf')) {
-        newBook = await importPdfFile(file);
-      } else if (lower.endsWith('.txt')) {
+      if (lower.endsWith('.txt')) {
         newBook = await importTxtFile(file);
-      } else {
+      } else if (lower.endsWith('.epub')) {
         newBook = await importEpubFile(file);
+      } else {
+        alert('Định dạng file không được hỗ trợ. Vui lòng chọn file .epub hoặc .txt.');
+        return;
       }
       await refreshAll();
       await handleSelectBook(newBook);
     } catch (err) {
       console.error('Lỗi import sách:', err);
-      alert('Không thể đọc file sách này. Vui lòng kiểm tra lại định dạng file (.epub, .pdf hoặc .txt).');
+      alert('Không thể đọc file sách này. Vui lòng kiểm tra lại định dạng file (.epub hoặc .txt).');
     } finally {
       setIsLoadingBook(false);
     }
@@ -227,31 +226,17 @@ export function App() {
   return (
     <div className="app-container">
       {activeBook && activeBuffer ? (
-        activeBook.fileFormat === 'pdf' || activeBook.title.toLowerCase().endsWith('.pdf') ? (
-          <PdfReaderView
-            book={activeBook}
-            fileBuffer={activeBuffer}
-            initialSettings={settings}
-            onClose={() => {
-              setActiveBook(null);
-              setActiveBuffer(null);
-              refreshAll();
-            }}
-            onUpdateProgress={handleUpdateProgress}
-          />
-        ) : (
-          <ReaderView
-            book={activeBook}
-            fileBuffer={activeBuffer}
-            initialSettings={settings}
-            onClose={() => {
-              setActiveBook(null);
-              setActiveBuffer(null);
-              refreshAll();
-            }}
-            onUpdateProgress={handleUpdateProgress}
-          />
-        )
+        <ReaderView
+          book={activeBook}
+          fileBuffer={activeBuffer}
+          initialSettings={settings}
+          onClose={() => {
+            setActiveBook(null);
+            setActiveBuffer(null);
+            refreshAll();
+          }}
+          onUpdateProgress={handleUpdateProgress}
+        />
       ) : (
         <>
           <Header

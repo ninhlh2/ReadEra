@@ -12,7 +12,6 @@ import {
   FolderPlus,
   Copy,
   Check,
-  FileType,
 } from 'lucide-react';
 import type { BookRecord, Collection, AuthorGroup, HighlightItem, BookStatus } from '../types';
 import { LibrarySidebar, type LibraryCategory } from './LibrarySidebar';
@@ -64,7 +63,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   const [currentCategory, setCurrentCategory] = useState<LibraryCategory>('all');
   const [selectedCollectionId, setSelectedCollectionId] = useState<string | undefined>();
   const [selectedAuthor, setSelectedAuthor] = useState<string | undefined>();
-  const [selectedFormat, setSelectedFormat] = useState<'all' | 'epub' | 'pdf' | 'txt'>('all');
+  const [selectedFormat, setSelectedFormat] = useState<'all' | 'epub' | 'txt'>('all');
   const [sortBy, setSortBy] = useState<'recent' | 'title' | 'author'>('recent');
   const [isDragOver, setIsDragOver] = useState(false);
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
@@ -102,8 +101,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
 
   // Calculate format counts
   const formatCounts = {
-    epub: books.filter((b) => b.fileFormat === 'epub' || (!b.fileFormat && !b.title.toLowerCase().endsWith('.pdf') && !b.title.toLowerCase().endsWith('.txt'))).length,
-    pdf: books.filter((b) => b.fileFormat === 'pdf' || b.title.toLowerCase().endsWith('.pdf')).length,
+    epub: books.filter((b) => b.fileFormat === 'epub' || (!b.fileFormat && !b.title.toLowerCase().endsWith('.txt'))).length,
     txt: books.filter((b) => b.fileFormat === 'txt' || b.title.toLowerCase().endsWith('.txt')).length,
   };
 
@@ -121,7 +119,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     e.preventDefault();
     setIsDragOver(false);
     const file = e.dataTransfer.files?.[0];
-    if (file && (file.name.toLowerCase().endsWith('.epub') || file.name.toLowerCase().endsWith('.txt') || file.name.toLowerCase().endsWith('.pdf'))) {
+    if (file && (file.name.toLowerCase().endsWith('.epub') || file.name.toLowerCase().endsWith('.txt'))) {
       onUploadFile(file);
     }
   };
@@ -159,10 +157,8 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     }
     if (currentCategory === 'formats') {
       if (selectedFormat && selectedFormat !== 'all') {
-        const isPdf = book.fileFormat === 'pdf' || book.title.toLowerCase().endsWith('.pdf');
         const isTxt = book.fileFormat === 'txt' || book.title.toLowerCase().endsWith('.txt');
-        const isEpub = !isPdf && !isTxt;
-        if (selectedFormat === 'pdf') return isPdf;
+        const isEpub = !isTxt;
         if (selectedFormat === 'txt') return isTxt;
         if (selectedFormat === 'epub') return isEpub;
       }
@@ -393,7 +389,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
               {books.length === 0 ? 'Thư viện chưa có cuốn sách nào' : 'Không có sách trong mục này'}
             </h3>
             <p className="empty-desc">
-              Kéo thả file sách <strong>.EPUB</strong>, <strong>.PDF</strong> hoặc <strong>.TXT</strong> vào đây hoặc tải sách mẫu để trải nghiệm ngay.
+              Kéo thả file sách <strong>.EPUB</strong> hoặc <strong>.TXT</strong> vào đây hoặc tải sách mẫu để trải nghiệm ngay.
             </p>
             {books.length === 0 && (
               <div className="empty-actions">
@@ -427,9 +423,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                       <img src={book.coverUrl} alt={book.title} className="book-cover-img" loading="lazy" />
                     ) : (
                       <div className="book-cover-placeholder">
-                        {book.fileFormat === 'pdf' ? (
-                          <FileType className="book-cover-placeholder-icon" color="#ef4444" />
-                        ) : book.fileFormat === 'txt' ? (
+                        {book.fileFormat === 'txt' ? (
                           <FileText className="book-cover-placeholder-icon" color="#10b981" />
                         ) : (
                           <BookIcon className="book-cover-placeholder-icon" />
@@ -450,16 +444,14 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                         borderRadius: 4,
                         background: 'rgba(0,0,0,0.65)',
                         color:
-                          book.fileFormat === 'pdf'
-                            ? '#f87171'
-                            : book.fileFormat === 'txt'
+                          book.fileFormat === 'txt'
                             ? '#34d399'
                             : '#818cf8',
                         backdropFilter: 'blur(6px)',
                         border: '1px solid rgba(255,255,255,0.1)',
                       }}
                     >
-                      {book.fileFormat === 'pdf' ? 'PDF' : book.fileFormat === 'txt' ? 'TXT' : 'EPUB'}
+                      {book.fileFormat === 'txt' ? 'TXT' : 'EPUB'}
                     </span>
 
                     {/* Favorite star */}

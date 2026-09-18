@@ -64,7 +64,7 @@ export const Header: React.FC<HeaderProps> = ({
         <button
           className="btn-primary"
           onClick={() => fileInputRef.current?.click()}
-          title="Mở file sách EPUB, PDF, TXT từ thiết bị của bạn"
+          title="Mở file sách EPUB, TXT từ thiết bị của bạn"
         >
           <Plus size={18} />
           <span className="header-btn-label">Thêm sách</span>
@@ -73,7 +73,7 @@ export const Header: React.FC<HeaderProps> = ({
         <input
           ref={fileInputRef}
           type="file"
-          accept=".epub,.txt,.pdf"
+          accept=".epub,.txt"
           style={{ display: 'none' }}
           onChange={handleFileChange}
         />

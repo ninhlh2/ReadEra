@@ -44,7 +44,7 @@ export interface BookRecord {
   isFavorite?: boolean;
   status?: BookStatus;
   collectionIds?: string[];
-  fileFormat?: 'epub' | 'txt' | 'pdf';
+  fileFormat?: 'epub' | 'txt';
   pageCount?: number;
   currentPage?: number;
 }

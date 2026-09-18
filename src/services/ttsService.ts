@@ -200,9 +200,9 @@ class BackgroundAudioKeeper {
         this.audioEl.volume = 0.05;
       }
       if (this.audioEl) {
-        this.audioEl.play().catch(() => {});
+        this.audioEl.play().catch(() => { });
       }
-    } catch {}
+    } catch { }
 
     try {
       if (typeof navigator !== 'undefined' && 'wakeLock' in navigator && (navigator as any).wakeLock) {
@@ -211,9 +211,9 @@ class BackgroundAudioKeeper {
           .then((lock: any) => {
             this.wakeLock = lock;
           })
-          .catch(() => {});
+          .catch(() => { });
       }
-    } catch {}
+    } catch { }
   }
 
   public stop() {
@@ -221,13 +221,13 @@ class BackgroundAudioKeeper {
       if (this.audioEl) {
         this.audioEl.pause();
       }
-    } catch {}
+    } catch { }
     try {
       if (this.wakeLock) {
-        this.wakeLock.release().catch(() => {});
+        this.wakeLock.release().catch(() => { });
         this.wakeLock = null;
       }
-    } catch {}
+    } catch { }
   }
 }
 
@@ -366,7 +366,7 @@ class TtsServiceManager {
         try {
           await TextToSpeech.openInstall();
           return;
-        } catch {}
+        } catch { }
       }
     } else {
       alert('Tùy chỉnh Engine (Samsung, Google...) chỉ khả dụng trên thiết bị Android / iOS.');
@@ -419,7 +419,7 @@ class TtsServiceManager {
             playbackRate: 1.0,
             position: Math.min(this.currentIndex + 1, Math.max(1, this.sentences.length)),
           });
-        } catch {}
+        } catch { }
       }
     }
   }
@@ -590,7 +590,7 @@ class TtsServiceManager {
     // 'compact' is ~25ms (flowing reading with minimal gap)
     // 'relaxed' is ~160ms (slower contemplation pause)
     let baseMs = 75;
-    if (this.pauseMode === 'compact') baseMs = 25;
+    if (this.pauseMode === 'compact') baseMs = 15;
     else if (this.pauseMode === 'relaxed') baseMs = 160;
 
     // Sub-clauses ending with comma, semicolon, or colon need even less pause
@@ -820,8 +820,8 @@ class TtsServiceManager {
     this.clearPendingPause();
     if (this.isNative) {
       try {
-        TextToSpeech.stop().catch(() => {});
-      } catch {}
+        TextToSpeech.stop().catch(() => { });
+      } catch { }
     }
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
