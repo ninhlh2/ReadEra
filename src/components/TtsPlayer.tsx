@@ -1,140 +1,447 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Play, Pause, Square, Volume2, X, FastForward } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import {
+  Play,
+  Pause,
+  SkipBack,
+  SkipForward,
+  Volume2,
+  X,
+  FastForward,
+  Settings,
+  Clock,
+  Mic,
+  ChevronDown,
+  Sparkles,
+} from 'lucide-react';
+import { ttsService } from '../services/ttsService';
+import type { TtsVoice, SleepTimerMode } from '../services/ttsService';
 
 interface TtsPlayerProps {
-  textToRead: string;
+  bookTitle?: string;
+  chapterTitle?: string;
+  sentences: string[];
+  initialSentenceIndex?: number;
+  highlightEnabled?: boolean;
+  onToggleHighlight?: (enabled: boolean) => void;
+  onSentenceChange?: (index: number, sentenceText: string) => void;
   onClose: () => void;
-  onNextChunk?: () => void;
+  onNextChapter?: () => void;
+  onPrevChapter?: () => void;
 }
 
 export const TtsPlayer: React.FC<TtsPlayerProps> = ({
-  textToRead,
+  bookTitle,
+  chapterTitle,
+  sentences,
+  initialSentenceIndex = 0,
+  highlightEnabled = true,
+  onToggleHighlight,
+  onSentenceChange,
   onClose,
-  onNextChunk,
+  onNextChapter,
 }) => {
   const [isPlaying, setIsPlaying] = useState(false);
-  const [rate, setRate] = useState(1.0);
-  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const [isPaused, setIsPaused] = useState(false);
+  const [currentIndex, setCurrentIndex] = useState(initialSentenceIndex);
+  const [rate, setRate] = useState(ttsService.getRate());
+  const [pitch, setPitch] = useState(ttsService.getPitch());
+  const [voices, setVoices] = useState<TtsVoice[]>([]);
+  const [selectedVoiceId, setSelectedVoiceId] = useState<string | null>(ttsService.getSelectedVoiceId());
+  const [sleepMode, setSleepMode] = useState<SleepTimerMode>(ttsService.getSleepTimerMode());
+  const [sleepRemaining, setSleepRemaining] = useState<number | null>(ttsService.getSleepTimerRemaining());
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
 
+  // Initialize service with metadata and sentences
   useEffect(() => {
-    if (!('speechSynthesis' in window)) {
-      alert('Trình duyệt này không hỗ trợ SpeechSynthesis (Đọc văn bản).');
-      onClose();
-      return;
-    }
+    ttsService.setMetadata({
+      title: chapterTitle || bookTitle || 'ReadEra TTS',
+      author: bookTitle,
+    });
+  }, [bookTitle, chapterTitle]);
 
-    startSpeaking(textToRead);
+  // Load voices on mount
+  useEffect(() => {
+    ttsService.getAvailableVoices().then((list) => {
+      setVoices(list);
+      if (!selectedVoiceId && list.length > 0) {
+        // Auto select first Vietnamese voice or default
+        const vi = list.find((v) => v.isVietnamese);
+        if (vi) {
+          setSelectedVoiceId(vi.id);
+          ttsService.setVoice(vi.id);
+        }
+      }
+    });
+  }, []);
+
+  // Listen for TTS events
+  useEffect(() => {
+    const unsubSentence = ttsService.onSentenceChange((idx, text) => {
+      setCurrentIndex(idx);
+      if (onSentenceChange) {
+        onSentenceChange(idx, text);
+      }
+    });
+
+    const unsubPlayback = ttsService.onPlaybackStateChange((playing, paused) => {
+      setIsPlaying(playing);
+      setIsPaused(paused);
+    });
+
+    const unsubTimer = ttsService.onSleepTimerTick((remaining, mode) => {
+      setSleepRemaining(remaining);
+      setSleepMode(mode);
+    });
+
+    const unsubComplete = ttsService.onChapterComplete(() => {
+      if (onNextChapter) {
+        onNextChapter();
+      }
+    });
 
     return () => {
-      window.speechSynthesis.cancel();
+      unsubSentence();
+      unsubPlayback();
+      unsubTimer();
+      unsubComplete();
     };
-  }, [textToRead]);
+  }, [onSentenceChange, onNextChapter]);
 
-  const startSpeaking = (text: string) => {
-    window.speechSynthesis.cancel();
-    if (!text.trim()) return;
-
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = rate;
-
-    // Pick a voice: try Vietnamese first, otherwise default
-    const voices = window.speechSynthesis.getVoices();
-    const viVoice = voices.find((v) => v.lang.startsWith('vi'));
-    if (viVoice) {
-      utterance.voice = viVoice;
+  // When sentences change (e.g. new chapter loaded or opened)
+  useEffect(() => {
+    if (sentences.length > 0) {
+      ttsService.loadSentences(sentences, initialSentenceIndex);
+      ttsService.play();
     }
-
-    utterance.onstart = () => setIsPlaying(true);
-    utterance.onend = () => {
-      setIsPlaying(false);
-      if (onNextChunk) onNextChunk();
-    };
-    utterance.onerror = () => setIsPlaying(false);
-
-    utteranceRef.current = utterance;
-    window.speechSynthesis.speak(utterance);
-  };
+  }, [sentences]);
 
   const handleTogglePlay = () => {
-    if (isPlaying) {
-      window.speechSynthesis.pause();
-      setIsPlaying(false);
+    if (isPlaying && !isPaused) {
+      ttsService.pause();
     } else {
-      if (window.speechSynthesis.paused) {
-        window.speechSynthesis.resume();
-        setIsPlaying(true);
-      } else {
-        startSpeaking(textToRead);
-      }
+      ttsService.play();
     }
   };
 
   const handleStop = () => {
-    window.speechSynthesis.cancel();
-    setIsPlaying(false);
+    ttsService.stop();
+    onClose();
   };
 
-  const handleChangeRate = () => {
-    const rates = [0.8, 1.0, 1.25, 1.5, 2.0];
-    const nextIdx = (rates.indexOf(rate) + 1) % rates.length;
-    const nextRate = rates[nextIdx];
-    setRate(nextRate);
-    if (isPlaying) {
-      startSpeaking(textToRead);
-    }
+  const handlePrev = () => {
+    ttsService.prevSentence();
   };
+
+  const handleNext = () => {
+    ttsService.nextSentence();
+  };
+
+  const handleCycleRate = () => {
+    const rates = [0.8, 1.0, 1.25, 1.5, 1.75, 2.0];
+    const curIdx = rates.findIndex((r) => Math.abs(r - rate) < 0.05);
+    const nextRate = rates[(curIdx + 1) % rates.length];
+    setRate(nextRate);
+    ttsService.setRate(nextRate);
+  };
+
+  const handleRateChange = (newRate: number) => {
+    setRate(newRate);
+    ttsService.setRate(newRate);
+  };
+
+  const handlePitchChange = (newPitch: number) => {
+    setPitch(newPitch);
+    ttsService.setPitch(newPitch);
+  };
+
+  const handleVoiceChange = (voiceId: string) => {
+    setSelectedVoiceId(voiceId);
+    ttsService.setVoice(voiceId || null);
+  };
+
+  const handleSleepModeChange = (mode: SleepTimerMode) => {
+    setSleepMode(mode);
+    ttsService.setSleepTimer(mode);
+  };
+
+  const formatTimer = (seconds: number | null) => {
+    if (seconds === null) return null;
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}:${s < 10 ? '0' : ''}${s}`;
+  };
+
+  const progressPercent =
+    sentences.length > 0 ? Math.round(((currentIndex + 1) / sentences.length) * 100) : 0;
 
   return (
-    <div className="tts-player-bar">
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <Volume2 size={18} color="var(--color-primary)" />
-        <span className="tts-pulse" style={{ opacity: isPlaying ? 1 : 0.3 }} />
-        <span style={{ fontSize: 13, fontWeight: 600 }}>
-          {isPlaying ? 'Đang đọc...' : 'Tạm dừng'}
-        </span>
+    <>
+      {/* Floating ReadEra Bottom Bar */}
+      <div className="readera-tts-floating-bar">
+        {/* Progress Fill Bar along the top of the player */}
+        <div
+          className="readera-tts-progress-fill"
+          style={{ width: `${progressPercent}%` }}
+        />
+
+        <div className="readera-tts-main-row">
+          {/* Left: Info & State */}
+          <div className="readera-tts-info-section">
+            <div className="readera-tts-icon-wrap">
+              <Volume2
+                size={20}
+                className={`readera-tts-speaker-icon ${isPlaying && !isPaused ? 'pulsing' : ''}`}
+              />
+            </div>
+            <div className="readera-tts-text-wrap">
+              <span className="readera-tts-chapter-title">
+                {chapterTitle || bookTitle || 'Đang đọc'}
+              </span>
+              <div className="readera-tts-meta-row">
+                <span className="readera-tts-counter">
+                  Câu {currentIndex + 1} / {sentences.length || 1} ({progressPercent}%)
+                </span>
+                {sleepRemaining !== null && (
+                  <span className="readera-tts-timer-badge" title="Thời gian hẹn giờ còn lại">
+                    <Clock size={11} />
+                    {formatTimer(sleepRemaining)}
+                  </span>
+                )}
+                {sleepMode === 'end_of_chapter' && (
+                  <span className="readera-tts-timer-badge" title="Dừng khi đọc hết chương">
+                    <Clock size={11} />
+                    Hết chương
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Center: Core Controls */}
+          <div className="readera-tts-controls">
+            <button
+              className="readera-tts-btn btn-prev"
+              onClick={handlePrev}
+              disabled={currentIndex <= 0}
+              title="Lùi lại 1 câu (Trước)"
+            >
+              <SkipBack size={18} />
+            </button>
+
+            <button
+              className={`readera-tts-btn btn-play-pause ${isPlaying && !isPaused ? 'playing' : ''}`}
+              onClick={handleTogglePlay}
+              title={isPlaying && !isPaused ? 'Tạm dừng' : 'Tiếp tục đọc'}
+            >
+              {isPlaying && !isPaused ? <Pause size={22} /> : <Play size={22} />}
+            </button>
+
+            <button
+              className="readera-tts-btn btn-next"
+              onClick={handleNext}
+              disabled={currentIndex >= sentences.length - 1}
+              title="Chuyển sang câu kế tiếp (Sau)"
+            >
+              <SkipForward size={18} />
+            </button>
+          </div>
+
+          {/* Right: Quick actions */}
+          <div className="readera-tts-actions">
+            {/* Speed toggle */}
+            <button
+              className="readera-tts-chip-btn"
+              onClick={handleCycleRate}
+              title="Tốc độ đọc (Bấm để đổi)"
+            >
+              <FastForward size={13} />
+              <span>{rate.toFixed(1)}x</span>
+            </button>
+
+            {/* Settings Modal Toggle */}
+            <button
+              className={`readera-tts-icon-btn ${showSettingsModal ? 'active' : ''}`}
+              onClick={() => setShowSettingsModal((prev) => !prev)}
+              title="Cài đặt giọng đọc & hẹn giờ"
+            >
+              <Settings size={18} />
+            </button>
+
+            {/* Stop & Close */}
+            <button
+              className="readera-tts-icon-btn btn-close"
+              onClick={handleStop}
+              title="Dừng đọc và đóng"
+            >
+              <X size={18} />
+            </button>
+          </div>
+        </div>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <button
-          className="btn-icon"
-          style={{ width: 32, height: 32 }}
-          onClick={handleTogglePlay}
-          title={isPlaying ? 'Tạm dừng' : 'Tiếp tục'}
-        >
-          {isPlaying ? <Pause size={16} /> : <Play size={16} />}
-        </button>
+      {/* Expanded TTS Settings Modal / Bottom Sheet */}
+      {showSettingsModal && (
+        <div className="readera-tts-modal-overlay" onClick={() => setShowSettingsModal(false)}>
+          <div
+            className="readera-tts-modal-content"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="readera-tts-modal-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Sparkles size={18} color="var(--color-primary)" />
+                <h3>Cài đặt Giọng đọc ReadEra</h3>
+              </div>
+              <button
+                className="btn-icon"
+                onClick={() => setShowSettingsModal(false)}
+                title="Đóng bảng cài đặt"
+              >
+                <X size={18} />
+              </button>
+            </div>
 
-        <button
-          className="btn-icon"
-          style={{ width: 32, height: 32 }}
-          onClick={handleStop}
-          title="Dừng hẳn"
-        >
-          <Square size={14} />
-        </button>
+            <div className="readera-tts-modal-body">
+              {/* Voice Selector */}
+              <div className="tts-setting-group">
+                <label className="tts-setting-label">
+                  <Mic size={16} />
+                  <span>Chọn Giọng Đọc</span>
+                </label>
+                <div className="tts-select-wrapper">
+                  <select
+                    className="tts-voice-select"
+                    value={selectedVoiceId || ''}
+                    onChange={(e) => handleVoiceChange(e.target.value)}
+                  >
+                    {voices.length === 0 && (
+                      <option value="">Giọng đọc mặc định hệ thống</option>
+                    )}
+                    {voices.map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.isVietnamese ? `⭐ ${v.name}` : v.name}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown size={16} className="select-arrow" />
+                </div>
+              </div>
 
-        <button
-          className="btn-secondary"
-          style={{ padding: '4px 10px', fontSize: 12, borderRadius: 20 }}
-          onClick={handleChangeRate}
-          title="Tốc độ đọc"
-        >
-          <FastForward size={12} />
-          <span>{rate}x</span>
-        </button>
-      </div>
+              {/* Speed Slider */}
+              <div className="tts-setting-group">
+                <div className="tts-setting-label-row">
+                  <label className="tts-setting-label">
+                    <FastForward size={16} />
+                    <span>Tốc độ đọc</span>
+                  </label>
+                  <span className="tts-slider-value">{rate.toFixed(1)}x</span>
+                </div>
+                <input
+                  type="range"
+                  min="0.5"
+                  max="3.0"
+                  step="0.1"
+                  value={rate}
+                  onChange={(e) => handleRateChange(parseFloat(e.target.value))}
+                  className="tts-range-slider"
+                />
+                <div className="tts-chip-row">
+                  {[0.8, 1.0, 1.2, 1.5, 2.0].map((r) => (
+                    <button
+                      key={r}
+                      className={`tts-chip ${Math.abs(rate - r) < 0.05 ? 'active' : ''}`}
+                      onClick={() => handleRateChange(r)}
+                    >
+                      {r.toFixed(1)}x
+                    </button>
+                  ))}
+                </div>
+              </div>
 
-      <button
-        className="btn-icon"
-        style={{ width: 28, height: 28 }}
-        onClick={() => {
-          handleStop();
-          onClose();
-        }}
-        title="Tắt đọc sách"
-      >
-        <X size={15} />
-      </button>
-    </div>
+              {/* Pitch Slider */}
+              <div className="tts-setting-group">
+                <div className="tts-setting-label-row">
+                  <label className="tts-setting-label">
+                    <Volume2 size={16} />
+                    <span>Cao độ giọng nói (Pitch)</span>
+                  </label>
+                  <span className="tts-slider-value">{pitch.toFixed(1)}</span>
+                </div>
+                <input
+                  type="range"
+                  min="0.6"
+                  max="1.4"
+                  step="0.1"
+                  value={pitch}
+                  onChange={(e) => handlePitchChange(parseFloat(e.target.value))}
+                  className="tts-range-slider"
+                />
+              </div>
+
+              {/* Sleep Timer */}
+              <div className="tts-setting-group">
+                <div className="tts-setting-label-row">
+                  <label className="tts-setting-label">
+                    <Clock size={16} />
+                    <span>Hẹn giờ ngủ</span>
+                  </label>
+                  {sleepRemaining !== null && (
+                    <span className="tts-timer-active-text">
+                      Còn lại: {formatTimer(sleepRemaining)}
+                    </span>
+                  )}
+                </div>
+                <div className="tts-timer-grid">
+                  {(
+                    [
+                      ['off', 'Tắt'],
+                      ['5m', '5 phút'],
+                      ['10m', '10 phút'],
+                      ['15m', '15 phút'],
+                      ['30m', '30 phút'],
+                      ['45m', '45 phút'],
+                      ['60m', '60 phút'],
+                      ['end_of_chapter', 'Hết chương'],
+                    ] as [SleepTimerMode, string][]
+                  ).map(([mode, label]) => (
+                    <button
+                      key={mode}
+                      className={`tts-timer-btn ${sleepMode === mode ? 'active' : ''}`}
+                      onClick={() => handleSleepModeChange(mode)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Highlight toggle */}
+              {onToggleHighlight && (
+                <div className="tts-setting-group tts-toggle-group">
+                  <span className="tts-toggle-label">Tô sáng câu đang đọc</span>
+                  <label className="switch">
+                    <input
+                      type="checkbox"
+                      checked={highlightEnabled}
+                      onChange={(e) => onToggleHighlight(e.target.checked)}
+                    />
+                    <span className="slider round" />
+                  </label>
+                </div>
+              )}
+            </div>
+
+            <div className="readera-tts-modal-footer">
+              <button
+                className="btn-primary"
+                style={{ width: '100%' }}
+                onClick={() => setShowSettingsModal(false)}
+              >
+                Hoàn tất
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 };

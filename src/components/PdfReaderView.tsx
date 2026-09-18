@@ -12,6 +12,7 @@ import {
   ZoomIn,
   ZoomOut,
   Sun,
+  Volume2,
 } from 'lucide-react';
 import type {
   BookRecord,
@@ -28,6 +29,8 @@ import {
 import { extractPdfToc } from '../services/pdfService';
 import { TocDrawer } from './TocDrawer';
 import { BookmarksDrawer } from './BookmarksDrawer';
+import { TtsPlayer } from './TtsPlayer';
+import { splitIntoSentences } from '../services/ttsService';
 
 interface PdfReaderViewProps {
   book: BookRecord;
@@ -60,6 +63,9 @@ export const PdfReaderView: React.FC<PdfReaderViewProps> = ({
   const [showToc, setShowToc] = useState<boolean>(false);
   const [showBookmarks, setShowBookmarks] = useState<boolean>(false);
   const [showBrightnessMenu, setShowBrightnessMenu] = useState<boolean>(false);
+  const [showTts, setShowTts] = useState<boolean>(false);
+  const [ttsSentences, setTtsSentences] = useState<string[]>([]);
+  const [ttsSentenceIndex, setTtsSentenceIndex] = useState<number>(0);
 
   // Metadata
   const [toc, setToc] = useState<TocItem[]>([]);
@@ -182,6 +188,49 @@ export const PdfReaderView: React.FC<PdfReaderViewProps> = ({
     if (currentPage > 1) goToPage(currentPage - 1);
   };
 
+  // PDF TTS helpers
+  const extractPdfPageSentences = async (pageNum: number): Promise<string[]> => {
+    if (!pdfDocRef.current) return [];
+    try {
+      const page = await pdfDocRef.current.getPage(pageNum);
+      const textContent = await page.getTextContent();
+      const rawText = textContent.items
+        .map((item: any) => item.str || '')
+        .join(' ');
+      return splitIntoSentences(rawText);
+    } catch (err) {
+      console.warn('Lỗi trích xuất chữ từ trang PDF:', err);
+      return [];
+    }
+  };
+
+  const handleStartPdfTts = async () => {
+    const sentences = await extractPdfPageSentences(currentPage);
+    if (sentences.length > 0) {
+      setTtsSentences(sentences);
+      setTtsSentenceIndex(0);
+      setShowTts(true);
+    } else {
+      alert('Không tìm thấy văn bản để đọc trên trang này (có thể là trang scan hình ảnh).');
+    }
+  };
+
+  const handlePdfNextPageTts = async () => {
+    if (currentPage < totalPages) {
+      const nextPageNum = currentPage + 1;
+      goToPage(nextPageNum);
+      const nextSentences = await extractPdfPageSentences(nextPageNum);
+      if (nextSentences.length > 0) {
+        setTtsSentences(nextSentences);
+        setTtsSentenceIndex(0);
+      } else {
+        setShowTts(false);
+      }
+    } else {
+      setShowTts(false);
+    }
+  };
+
   // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -289,6 +338,13 @@ export const PdfReaderView: React.FC<PdfReaderViewProps> = ({
             title="Độ sáng"
           >
             <Sun size={18} />
+          </button>
+          <button
+            className="btn-icon"
+            onClick={handleStartPdfTts}
+            title="Đọc văn bản bằng giọng nói (TTS)"
+          >
+            <Volume2 size={18} />
           </button>
           <button className="btn-icon hide-on-mobile" onClick={toggleFullscreen} title="Toàn màn hình">
             {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
@@ -439,6 +495,19 @@ export const PdfReaderView: React.FC<PdfReaderViewProps> = ({
           </div>
         </div>
       </footer>
+
+      {/* TTS Floating Player */}
+      {showTts && (
+        <TtsPlayer
+          bookTitle={book.title}
+          chapterTitle={`Trang ${currentPage} / ${totalPages}`}
+          sentences={ttsSentences}
+          initialSentenceIndex={ttsSentenceIndex}
+          onSentenceChange={(idx) => setTtsSentenceIndex(idx)}
+          onClose={() => setShowTts(false)}
+          onNextChapter={handlePdfNextPageTts}
+        />
+      )}
 
       {/* Drawers */}
       <TocDrawer

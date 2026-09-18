@@ -973,32 +973,458 @@ button:disabled {
   font-weight: 600;
 }
 
-/* TTS Floating Player Bar */
-.tts-player-bar {
+/* ==========================================================================
+   ReadEra Signature TTS Floating Player & Settings
+   ========================================================================== */
+
+.readera-tts-floating-bar {
   position: absolute;
-  top: 70px;
+  bottom: 24px;
   left: 50%;
   transform: translateX(-50%);
-  background: var(--bg-surface-glass);
-  backdrop-filter: blur(16px);
-  border: 1px solid var(--border-color);
-  box-shadow: var(--shadow-lg);
-  border-radius: var(--radius-full);
-  padding: 8px 18px;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  z-index: 60;
-  animation: slideDown 0.25s ease;
+  width: calc(100% - 32px);
+  max-width: 640px;
+  background: var(--bg-surface-glass, rgba(26, 29, 36, 0.92));
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.12));
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  border-radius: 20px;
+  overflow: hidden;
+  z-index: 80;
+  animation: slideUpTts 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.tts-pulse {
-  width: 8px;
-  height: 8px;
+@keyframes slideUpTts {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 24px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+.readera-tts-progress-fill {
+  height: 3px;
+  background: linear-gradient(90deg, var(--color-primary, #6366f1), #a855f7);
+  transition: width 0.3s ease;
+}
+
+.readera-tts-main-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  gap: 12px;
+}
+
+/* Left: Info Section */
+.readera-tts-info-section {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+
+.readera-tts-icon-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: rgba(99, 102, 241, 0.12);
+  flex-shrink: 0;
+}
+
+.readera-tts-speaker-icon {
+  color: var(--color-primary, #6366f1);
+  transition: transform 0.2s ease;
+}
+
+.readera-tts-speaker-icon.pulsing {
+  animation: ttsPulse 1.4s ease-in-out infinite alternate;
+}
+
+@keyframes ttsPulse {
+  0% {
+    transform: scale(0.92);
+    filter: drop-shadow(0 0 2px var(--color-primary, #6366f1));
+  }
+  100% {
+    transform: scale(1.15);
+    filter: drop-shadow(0 0 8px var(--color-primary, #6366f1));
+  }
+}
+
+.readera-tts-text-wrap {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.readera-tts-chapter-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.3;
+}
+
+.readera-tts-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.readera-tts-counter {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.readera-tts-timer-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: rgba(245, 158, 11, 0.18);
+  color: #f59e0b;
+}
+
+/* Center: Controls */
+.readera-tts-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.readera-tts-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
   border-radius: 50%;
-  background: var(--color-primary);
-  box-shadow: 0 0 10px var(--color-primary);
-  animation: pulse 1.5s infinite;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.readera-tts-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.readera-tts-btn.btn-prev,
+.readera-tts-btn.btn-next {
+  width: 34px;
+  height: 34px;
+  background: var(--bg-hover, rgba(255, 255, 255, 0.08));
+}
+
+.readera-tts-btn.btn-prev:not(:disabled):hover,
+.readera-tts-btn.btn-next:not(:disabled):hover {
+  background: var(--bg-active, rgba(255, 255, 255, 0.15));
+  transform: scale(1.08);
+}
+
+.readera-tts-btn.btn-play-pause {
+  width: 44px;
+  height: 44px;
+  background: var(--color-primary, #6366f1);
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.4);
+}
+
+.readera-tts-btn.btn-play-pause:hover {
+  transform: scale(1.06);
+  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.55);
+}
+
+/* Right: Actions */
+.readera-tts-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.readera-tts-chip-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 9px;
+  border-radius: 12px;
+  font-size: 11.5px;
+  font-weight: 600;
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.12));
+  background: var(--bg-hover, rgba(255, 255, 255, 0.06));
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.readera-tts-chip-btn:hover {
+  background: var(--bg-active, rgba(255, 255, 255, 0.12));
+  border-color: var(--color-primary, #6366f1);
+}
+
+.readera-tts-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.readera-tts-icon-btn:hover,
+.readera-tts-icon-btn.active {
+  color: var(--text-primary);
+  background: var(--bg-hover, rgba(255, 255, 255, 0.08));
+}
+
+.readera-tts-icon-btn.btn-close:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.15);
+}
+
+/* TTS Settings Modal Sheet */
+.readera-tts-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  animation: fadeIn 0.2s ease;
+}
+
+.readera-tts-modal-content {
+  width: 100%;
+  max-width: 440px;
+  background: var(--bg-surface, #1e222b);
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+  border-radius: 20px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  animation: popIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes popIn {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.readera-tts-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+}
+
+.readera-tts-modal-header h3 {
+  font-size: 16px;
+  font-weight: 700;
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.readera-tts-modal-body {
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.tts-setting-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tts-setting-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.tts-setting-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.tts-slider-value {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-primary, #6366f1);
+}
+
+.tts-select-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.tts-voice-select {
+  width: 100%;
+  padding: 10px 36px 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.12));
+  background: var(--bg-hover, rgba(255, 255, 255, 0.05));
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+  appearance: none;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.tts-voice-select:focus {
+  border-color: var(--color-primary, #6366f1);
+}
+
+.tts-select-wrapper .select-arrow {
+  position: absolute;
+  right: 12px;
+  pointer-events: none;
+  color: var(--text-secondary);
+}
+
+.tts-range-slider {
+  width: 100%;
+  accent-color: var(--color-primary, #6366f1);
+  cursor: pointer;
+  height: 6px;
+  border-radius: 3px;
+}
+
+.tts-chip-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.tts-chip {
+  flex: 1;
+  padding: 6px 0;
+  border-radius: 10px;
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+  background: var(--bg-hover, rgba(255, 255, 255, 0.04));
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.tts-chip:hover,
+.tts-chip.active {
+  background: rgba(99, 102, 241, 0.15);
+  border-color: var(--color-primary, #6366f1);
+  color: var(--color-primary, #6366f1);
+}
+
+.tts-timer-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.tts-timer-btn {
+  padding: 8px 4px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+  background: var(--bg-hover, rgba(255, 255, 255, 0.04));
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.18s ease;
+}
+
+.tts-timer-btn:hover,
+.tts-timer-btn.active {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: #f59e0b;
+  color: #f59e0b;
+}
+
+.tts-timer-active-text {
+  font-size: 12px;
+  font-weight: 600;
+  color: #f59e0b;
+}
+
+.tts-toggle-group {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 4px;
+}
+
+.tts-toggle-label {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.readera-tts-modal-footer {
+  padding: 14px 20px 18px;
+  border-top: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+}
+
+@media (max-width: 640px) {
+  .readera-tts-floating-bar {
+    bottom: 12px;
+    width: calc(100% - 16px);
+    border-radius: 16px;
+  }
+  .readera-tts-main-row {
+    padding: 8px 12px;
+    gap: 8px;
+  }
+  .readera-tts-chapter-title {
+    max-width: 110px;
+  }
+  .readera-tts-timer-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 
 /* Animations */
@@ -1167,13 +1593,6 @@ button:disabled {
   }
   .font-grid {
     grid-template-columns: 1fr;
-  }
-  .tts-player-bar {
-    width: calc(100vw - 20px);
-    max-width: 380px;
-    padding: 6px 12px;
-    top: 58px;
-    gap: 8px;
   }
 }
 

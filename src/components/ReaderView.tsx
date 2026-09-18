@@ -40,6 +40,7 @@ import { BookmarksDrawer } from './BookmarksDrawer';
 import { SettingsModal } from './SettingsModal';
 import { SearchModal } from './SearchModal';
 import { TtsPlayer } from './TtsPlayer';
+import { splitIntoSentences } from '../services/ttsService';
 import { TextSelectionMenu, HIGHLIGHT_COLORS } from './TextSelectionMenu';
 import { QuotesDrawer } from './QuotesDrawer';
 import { TranslateModal } from './TranslateModal';
@@ -92,7 +93,9 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
   const [showSettings, setShowSettings] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [showTts, setShowTts] = useState(false);
-  const [ttsText, setTtsText] = useState('');
+  const [ttsSentences, setTtsSentences] = useState<string[]>([]);
+  const [ttsSentenceIndex, setTtsSentenceIndex] = useState<number>(0);
+  const [ttsHighlightEnabled, setTtsHighlightEnabled] = useState<boolean>(true);
 
   // Load bookmarks & highlights on start
   useEffect(() => {
@@ -192,6 +195,25 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
         }
         hr, hr.divider {
           border-color: rgba(128, 128, 128, 0.25) !important;
+        }
+        .readera-tts-highlight {
+          background-color: ${
+            currentSettings.theme === 'black' || currentSettings.theme === 'dark' || currentSettings.theme === 'nord'
+              ? 'rgba(99, 102, 241, 0.45)'
+              : 'rgba(254, 240, 138, 0.65)'
+          } !important;
+          color: ${
+            currentSettings.theme === 'black' || currentSettings.theme === 'dark' || currentSettings.theme === 'nord'
+              ? '#ffffff'
+              : '#1e293b'
+          } !important;
+          border-radius: 4px !important;
+          box-shadow: 0 0 0 3px ${
+            currentSettings.theme === 'black' || currentSettings.theme === 'dark' || currentSettings.theme === 'nord'
+              ? 'rgba(99, 102, 241, 0.3)'
+              : 'rgba(254, 240, 138, 0.5)'
+          } !important;
+          transition: all 0.2s ease-in-out !important;
         }
       `;
     },
@@ -612,27 +634,108 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
     return results;
   };
 
-  // Start TTS
-  const handleStartTts = () => {
+  // Extract sentences from current chapter/document in EPUB
+  const extractCurrentDocSentences = useCallback(() => {
     if (renditionRef.current) {
       try {
         const contents: any = renditionRef.current.getContents();
         const item = Array.isArray(contents) ? contents[0] : contents;
-        if (item && item.document) {
+        if (item && item.document && item.document.body) {
+          const rawText = item.document.body.innerText || item.document.body.textContent || '';
+          return splitIntoSentences(rawText);
+        }
+      } catch (err) {
+        console.warn('Lỗi trích xuất câu EPUB:', err);
+      }
+    }
+    return [];
+  }, []);
+
+  const cleanupTtsHighlight = useCallback(() => {
+    try {
+      const contents: any = renditionRef.current?.getContents();
+      const item = Array.isArray(contents) ? contents[0] : contents;
+      if (item && item.document) {
+        item.document.querySelectorAll('.readera-tts-highlight').forEach((el: any) => {
+          el.classList.remove('readera-tts-highlight');
+        });
+      }
+    } catch {}
+  }, []);
+
+  const handleTtsSentenceChange = useCallback(
+    (index: number, sentenceText: string) => {
+      setTtsSentenceIndex(index);
+      if (!ttsHighlightEnabled || !sentenceText) return;
+
+      try {
+        const contents: any = renditionRef.current?.getContents();
+        const item = Array.isArray(contents) ? contents[0] : contents;
+        if (item && item.document && item.document.body) {
           const doc = item.document;
-          if (doc && doc.body) {
-            const text = doc.body.innerText || doc.body.textContent || '';
-            setTtsText(text.trim());
-            setShowTts(true);
-            return;
+          doc.querySelectorAll('.readera-tts-highlight').forEach((el: any) => {
+            el.classList.remove('readera-tts-highlight');
+          });
+
+          const snippet = sentenceText.slice(0, Math.min(30, sentenceText.length)).trim();
+          if (!snippet) return;
+
+          const candidates = doc.body.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote, div');
+          for (const el of candidates) {
+            if (el.textContent && el.textContent.includes(snippet)) {
+              el.classList.add('readera-tts-highlight');
+              el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+
+              const rect = el.getBoundingClientRect();
+              const viewWidth = doc.defaultView?.innerWidth || window.innerWidth;
+              if (rect.left >= viewWidth) {
+                renditionRef.current?.next();
+              }
+              break;
+            }
           }
         }
       } catch (err) {
-        console.warn('Lỗi trích xuất TTS:', err);
+        console.warn('Lỗi highlight câu TTS:', err);
       }
+    },
+    [ttsHighlightEnabled]
+  );
+
+  // Start TTS
+  const handleStartTts = (customText?: string) => {
+    if (customText) {
+      const list = splitIntoSentences(customText);
+      setTtsSentences(list.length > 0 ? list : [customText]);
+      setTtsSentenceIndex(0);
+      setShowTts(true);
+      return;
     }
-    setTtsText(chapterTitle);
-    setShowTts(true);
+
+    const sentences = extractCurrentDocSentences();
+    if (sentences.length > 0) {
+      setTtsSentences(sentences);
+      setTtsSentenceIndex(0);
+      setShowTts(true);
+    } else {
+      setTtsSentences([chapterTitle || book.title]);
+      setTtsSentenceIndex(0);
+      setShowTts(true);
+    }
+  };
+
+  const handleTtsNextChapter = () => {
+    if (renditionRef.current) {
+      renditionRef.current.next().then(() => {
+        setTimeout(() => {
+          const sentences = extractCurrentDocSentences();
+          if (sentences.length > 0) {
+            setTtsSentences(sentences);
+            setTtsSentenceIndex(0);
+          }
+        }, 500);
+      });
+    }
   };
 
   return (
@@ -696,7 +799,7 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
           {/* TTS Read Aloud */}
           <button
             className="btn-icon"
-            onClick={handleStartTts}
+            onClick={() => handleStartTts()}
             title="Đọc văn bản bằng giọng nói (TTS)"
           >
             <Volume2 size={18} />
@@ -830,10 +933,7 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
           onHighlight={(color) => handleAddHighlight(color)}
           onAddNote={(color, note) => handleAddHighlight(color, note)}
           onTranslate={(text) => setTranslateText(text)}
-          onSpeak={(text) => {
-            setTtsText(text);
-            setShowTts(true);
-          }}
+          onSpeak={(text) => handleStartTts(text)}
           onCreateQuoteCard={(text) => setQuoteCardData({ quote: text })}
           onClose={() => setSelectionData(null)}
         />
@@ -851,9 +951,18 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
       {/* TTS Floating Player */}
       {showTts && (
         <TtsPlayer
-          textToRead={ttsText}
-          onClose={() => setShowTts(false)}
-          onNextChunk={handleNextPage}
+          bookTitle={book.title}
+          chapterTitle={chapterTitle}
+          sentences={ttsSentences}
+          initialSentenceIndex={ttsSentenceIndex}
+          highlightEnabled={ttsHighlightEnabled}
+          onToggleHighlight={(enabled) => setTtsHighlightEnabled(enabled)}
+          onSentenceChange={handleTtsSentenceChange}
+          onClose={() => {
+            setShowTts(false);
+            cleanupTtsHighlight();
+          }}
+          onNextChapter={handleTtsNextChapter}
         />
       )}
 
