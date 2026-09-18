@@ -40,7 +40,7 @@ import { BookmarksDrawer } from './BookmarksDrawer';
 import { SettingsModal } from './SettingsModal';
 import { SearchModal } from './SearchModal';
 import { TtsPlayer } from './TtsPlayer';
-import { splitIntoSentences } from '../services/ttsService';
+import { splitIntoSentences, ttsService } from '../services/ttsService';
 import { TextSelectionMenu, HIGHLIGHT_COLORS } from './TextSelectionMenu';
 import { QuotesDrawer } from './QuotesDrawer';
 import { TranslateModal } from './TranslateModal';
@@ -96,7 +96,7 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
   const [ttsSentences, setTtsSentences] = useState<string[]>([]);
   const [ttsSentenceIndex, setTtsSentenceIndex] = useState<number>(0);
   const [ttsHighlightEnabled, setTtsHighlightEnabled] = useState<boolean>(true);
-  const pageTurnTimerRef = useRef<any>(null);
+  const lastTtsIndexRef = useRef<number>(0);
 
   // Load bookmarks & highlights on start
   useEffect(() => {
@@ -681,11 +681,6 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
   }, []);
 
   const cleanupTtsHighlight = useCallback((targetDoc?: Document) => {
-    if (pageTurnTimerRef.current) {
-      clearTimeout(pageTurnTimerRef.current);
-      pageTurnTimerRef.current = null;
-    }
-
     try {
       const docs: Document[] = [];
       if (targetDoc) {
@@ -721,119 +716,259 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
     }
   }, []);
 
-  const handleTtsSentenceChange = useCallback(
-    (index: number, sentenceText: string) => {
-      setTtsSentenceIndex(index);
+  // Find which sentence index corresponds to the currently visible page
+  const findCurrentPageSentenceIndex = (doc: Document, sentencesList: string[]): number => {
+    if (sentencesList.length === 0) return 0;
+    const viewWidth = doc.defaultView?.innerWidth || window.innerWidth;
+    const viewHeight = doc.defaultView?.innerHeight || window.innerHeight;
+    const isPaginated = settings.flow !== 'scrolled-doc';
 
-      // Clear any pending scheduled page turn
-      if (pageTurnTimerRef.current) {
-        clearTimeout(pageTurnTimerRef.current);
-        pageTurnTimerRef.current = null;
+    for (let i = 0; i < sentencesList.length; i++) {
+      const s = sentencesList[i].trim();
+      if (!s) continue;
+      const snippet = s.slice(0, Math.min(25, s.length)).trim();
+      if (!snippet) continue;
+
+      const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT, null);
+      let n: Node | null;
+      while ((n = walker.nextNode())) {
+        const text = n.textContent || '';
+        const idx = text.indexOf(snippet);
+        if (idx !== -1) {
+          try {
+            const range = doc.createRange();
+            range.setStart(n, idx);
+            range.setEnd(n, Math.min(text.length, idx + snippet.length));
+            const r = range.getBoundingClientRect();
+            if (isPaginated) {
+              if (r.left >= -10 && r.left < viewWidth - 30 && r.bottom > 20) {
+                return i;
+              }
+            } else {
+              if (r.top >= 0 && r.top < viewHeight * 0.8) {
+                return i;
+              }
+            }
+          } catch {
+            const parent = n.parentElement;
+            if (parent) {
+              const r = parent.getBoundingClientRect();
+              if (isPaginated) {
+                if (r.left >= -10 && r.left < viewWidth - 30 && r.bottom > 20) {
+                  return i;
+                }
+              } else {
+                if (r.top >= 0 && r.top < viewHeight * 0.8) {
+                  return i;
+                }
+              }
+            }
+          }
+          break;
+        }
+      }
+    }
+    return 0;
+  };
+
+  // Locate and highlight sentence, returning whether a page turn is required
+  const highlightSentenceAndDetermineTurn = useCallback(
+    (
+      doc: Document,
+      sentenceText: string,
+      isMovingForward: boolean,
+      isPaginated: boolean
+    ): 'next' | 'prev' | 'none' => {
+      cleanupTtsHighlight(doc);
+      if (!ttsHighlightEnabled) return 'none';
+
+      const clean = sentenceText.trim();
+      if (!clean) return 'none';
+
+      // Primary snippet: up to 30 characters, fallback to 16 characters
+      const searchSnippet = clean.slice(0, Math.min(30, clean.length)).trim();
+      if (!searchSnippet) return 'none';
+      const shortSnippet = clean.slice(0, Math.min(16, clean.length)).trim();
+
+      const viewWidth = doc.defaultView?.innerWidth || window.innerWidth;
+      const viewHeight = doc.defaultView?.innerHeight || window.innerHeight;
+
+      // Walk document text nodes to find candidates
+      const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT, null);
+      let node: Node | null;
+      interface MatchCandidate {
+        node: Node;
+        startIdx: number;
+        snippetLen: number;
+        rect: DOMRect;
+        score: number;
+      }
+      const candidates: MatchCandidate[] = [];
+
+      while ((node = walker.nextNode())) {
+        const text = node.textContent || '';
+        let idx = text.indexOf(searchSnippet);
+        let snippetLen = searchSnippet.length;
+        if (idx === -1 && shortSnippet.length >= 6) {
+          idx = text.indexOf(shortSnippet);
+          snippetLen = shortSnippet.length;
+        }
+
+        if (idx !== -1) {
+          try {
+            const range = doc.createRange();
+            range.setStart(node, idx);
+            range.setEnd(node, Math.min(text.length, idx + snippetLen));
+            const rect = range.getBoundingClientRect();
+
+            let score = 0;
+            if (isPaginated) {
+              const isCurrentPage = rect.left >= -20 && rect.left < viewWidth - 25 && rect.bottom > 15;
+              const isNextPage = rect.left >= viewWidth - 25 && rect.left < viewWidth * 2.5;
+              const isPrevPage = rect.right <= 10;
+
+              if (isCurrentPage) {
+                score = 1000;
+              } else if (isNextPage) {
+                score = isMovingForward ? 700 : 200;
+              } else if (isPrevPage) {
+                // If moving forward, discard past occurrences (prevents jumping back on repeated dialogue)
+                score = isMovingForward ? -500 : 800;
+              }
+            } else {
+              const isVisible = rect.top >= -20 && rect.top < viewHeight * 0.9;
+              score = isVisible ? 1000 : 500;
+            }
+
+            candidates.push({ node, startIdx: idx, snippetLen, rect, score });
+          } catch {}
+        }
       }
 
-      if (!ttsHighlightEnabled || !sentenceText) return;
+      // Sort candidates by score descending
+      candidates.sort((a, b) => b.score - a.score);
+      const best = candidates.length > 0 && candidates[0].score > -100 ? candidates[0] : null;
+
+      let activeEl: HTMLElement | null = null;
+      let targetRect: DOMRect | null = null;
+
+      if (best) {
+        try {
+          const range = doc.createRange();
+          const text = best.node.textContent || '';
+          const matchLen = Math.min(clean.length, text.length - best.startIdx);
+          range.setStart(best.node, best.startIdx);
+          range.setEnd(best.node, best.startIdx + matchLen);
+
+          const mark = doc.createElement('mark');
+          mark.className = 'readera-tts-sentence-active';
+          range.surroundContents(mark);
+          activeEl = mark;
+          targetRect = best.rect;
+        } catch {
+          const parent = best.node.parentElement;
+          if (parent) {
+            parent.classList.add('readera-tts-sentence-active');
+            activeEl = parent;
+            targetRect = best.rect;
+          }
+        }
+      } else {
+        // Fallback: block-level element search
+        const blockCandidates = doc.body.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote');
+        for (const el of blockCandidates) {
+          if (el.textContent && el.textContent.includes(searchSnippet)) {
+            const r = el.getBoundingClientRect();
+            if (isPaginated) {
+              const isVisible = r.left >= -20 && r.left < viewWidth - 25;
+              const isNext = r.left >= viewWidth - 25;
+              if (isVisible || (isMovingForward && isNext)) {
+                el.classList.add('readera-tts-sentence-active');
+                activeEl = el as HTMLElement;
+                targetRect = r;
+                break;
+              }
+            } else {
+              el.classList.add('readera-tts-sentence-active');
+              activeEl = el as HTMLElement;
+              targetRect = r;
+              break;
+            }
+          }
+        }
+      }
+
+      if (!activeEl || !targetRect) return 'none';
+
+      if (isPaginated) {
+        if (targetRect.left >= viewWidth - 25) {
+          return 'next';
+        } else if (targetRect.right < -15 && !isMovingForward) {
+          return 'prev';
+        }
+        return 'none';
+      } else {
+        activeEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return 'none';
+      }
+    },
+    [cleanupTtsHighlight, ttsHighlightEnabled]
+  );
+
+  // Synchronize sentence display and page turning before speaking
+  const prepareSentenceDisplay = useCallback(
+    async (index: number, sentenceText: string) => {
+      setTtsSentenceIndex(index);
+      const isMovingForward = index >= lastTtsIndexRef.current;
+      lastTtsIndexRef.current = index;
+
+      if (!sentenceText) return;
 
       try {
         const contents: any = renditionRef.current?.getContents();
         const item = Array.isArray(contents) ? contents[0] : contents;
         if (!item || !item.document || !item.document.body) return;
-
         const doc: Document = item.document;
-        cleanupTtsHighlight(doc);
 
-        const clean = sentenceText.trim();
-        if (!clean) return;
+        const isPaginated = settings.flow !== 'scrolled-doc';
+        const action = highlightSentenceAndDetermineTurn(doc, sentenceText, isMovingForward, isPaginated);
 
-        // Search key: normalized first 30 chars
-        const searchSnippet = clean.slice(0, Math.min(30, clean.length)).trim();
-        if (!searchSnippet) return;
-
-        let activeEl: HTMLElement | null = null;
-
-        // Strategy A: Walk text nodes to isolate and wrap ONLY the active sentence in a <mark>
-        const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT, null);
-        let node: Node | null;
-
-        while ((node = walker.nextNode())) {
-          const text = node.textContent || '';
-          const idx = text.indexOf(searchSnippet);
-          if (idx !== -1) {
-            try {
-              const range = doc.createRange();
-              const matchLen = Math.min(clean.length, text.length - idx);
-              range.setStart(node, idx);
-              range.setEnd(node, idx + matchLen);
-
-              const mark = doc.createElement('mark');
-              mark.className = 'readera-tts-sentence-active';
-              range.surroundContents(mark);
-              activeEl = mark;
-              break;
-            } catch {
-              const parent = node.parentElement;
-              if (parent) {
-                parent.classList.add('readera-tts-sentence-active');
-                activeEl = parent;
-                break;
-              }
-            }
-          }
-        }
-
-        // Strategy B: Fallback to closest block element containing snippet
-        if (!activeEl) {
-          const candidates = doc.body.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote');
-          for (const el of candidates) {
-            if (el.textContent && el.textContent.includes(searchSnippet)) {
-              el.classList.add('readera-tts-sentence-active');
-              activeEl = el as HTMLElement;
-              break;
-            }
-          }
-        }
-
-        if (activeEl) {
-          const viewWidth = doc.defaultView?.innerWidth || window.innerWidth;
-          const viewHeight = doc.defaultView?.innerHeight || window.innerHeight;
-          const rect = activeEl.getBoundingClientRect();
-          const isPaginated = settings.flow !== 'scrolled-doc';
-
-          if (isPaginated) {
-            // Check if sentence is off-screen (already on next page)
-            if (rect.left >= viewWidth - 30) {
-              renditionRef.current?.next();
-            } else if (rect.left < -10) {
-              renditionRef.current?.prev();
-            } else {
-              // Predictive auto-page turn: sentence is near bottom/end of the current page
-              const isNearPageEnd =
-                rect.right >= viewWidth - 40 ||
-                rect.left > viewWidth * 0.72 ||
-                rect.bottom > viewHeight * 0.78;
-
-              if (isNearPageEnd) {
-                const wordCount = clean.split(/\s+/).length;
-                const estSeconds = Math.max(1.8, wordCount / 2.5);
-                // Automatically turn page when ~70% through this sentence
-                const turnDelayMs = Math.max(1000, Math.round(estSeconds * 0.70 * 1000));
-
-                pageTurnTimerRef.current = setTimeout(() => {
-                  if (renditionRef.current) {
-                    renditionRef.current.next();
-                  }
-                }, turnDelayMs);
-              }
-            }
-          } else {
-            // Scrolled-doc: smooth scrolling to center of screen
-            activeEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          }
+        if (action === 'next' && renditionRef.current) {
+          await renditionRef.current.next();
+          // Natural pause (~220ms) for page turn animation to complete before voice starts reading
+          await new Promise((r) => setTimeout(r, 220));
+          // Re-highlight sentence on the new visible page
+          highlightSentenceAndDetermineTurn(doc, sentenceText, true, isPaginated);
+        } else if (action === 'prev' && renditionRef.current) {
+          await renditionRef.current.prev();
+          await new Promise((r) => setTimeout(r, 220));
+          highlightSentenceAndDetermineTurn(doc, sentenceText, false, isPaginated);
         }
       } catch (err) {
-        console.warn('Lỗi highlight câu TTS:', err);
+        console.warn('Lỗi chuẩn bị hiển thị câu TTS:', err);
       }
     },
-    [ttsHighlightEnabled, cleanupTtsHighlight, settings.flow]
+    [highlightSentenceAndDetermineTurn, settings.flow]
+  );
+
+  // Connect TTS beforeSpeakHook to synchronize reading
+  useEffect(() => {
+    if (showTts) {
+      ttsService.setBeforeSpeakHook(prepareSentenceDisplay);
+    } else {
+      ttsService.setBeforeSpeakHook(null);
+    }
+    return () => {
+      ttsService.setBeforeSpeakHook(null);
+    };
+  }, [showTts, prepareSentenceDisplay]);
+
+  const handleTtsSentenceChange = useCallback(
+    (index: number, sentenceText: string) => {
+      setTtsSentenceIndex(index);
+      prepareSentenceDisplay(index, sentenceText);
+    },
+    [prepareSentenceDisplay]
   );
 
   // Start TTS
@@ -848,8 +983,17 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
 
     const sentences = extractCurrentDocSentences();
     if (sentences.length > 0) {
+      let startIndex = 0;
+      try {
+        const contents: any = renditionRef.current?.getContents();
+        const item = Array.isArray(contents) ? contents[0] : contents;
+        if (item && item.document && item.document.body) {
+          startIndex = findCurrentPageSentenceIndex(item.document, sentences);
+        }
+      } catch {}
+
       setTtsSentences(sentences);
-      setTtsSentenceIndex(0);
+      setTtsSentenceIndex(startIndex);
       setShowTts(true);
     } else {
       setTtsSentences([chapterTitle || book.title]);

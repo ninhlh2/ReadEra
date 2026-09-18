@@ -113,7 +113,7 @@ export const TtsPlayer: React.FC<TtsPlayerProps> = ({
       ttsService.loadSentences(sentences, initialSentenceIndex);
       ttsService.play();
     }
-  }, [sentences]);
+  }, [sentences, initialSentenceIndex]);
 
   const handleTogglePlay = () => {
     if (isPlaying && !isPaused) {

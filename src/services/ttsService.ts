@@ -166,9 +166,14 @@ class TtsServiceManager {
   private onPlaybackStateChangeListeners: Array<(isPlaying: boolean, isPaused: boolean) => void> = [];
   private onSleepTimerTickListeners: Array<(remainingSeconds: number | null, mode: SleepTimerMode) => void> = [];
   private onChapterCompleteListeners: Array<() => void> = [];
+  private beforeSpeakHook: ((index: number, text: string) => Promise<void> | void) | null = null;
 
   constructor() {
     this.setupMediaSession();
+  }
+
+  public setBeforeSpeakHook(hook: ((index: number, text: string) => Promise<void> | void) | null) {
+    this.beforeSpeakHook = hook;
   }
 
   // --- Voice discovery ---
@@ -475,6 +480,20 @@ class TtsServiceManager {
 
     this.stopSpeakingInternal();
     this.updateMediaSessionMetadata();
+
+    // Allow reader view to turn page or highlight before speech begins
+    if (this.beforeSpeakHook) {
+      try {
+        await Promise.race([
+          this.beforeSpeakHook(this.currentIndex, text),
+          new Promise((resolve) => setTimeout(resolve, 2000)),
+        ]);
+      } catch (err) {
+        console.warn('Lỗi beforeSpeakHook:', err);
+      }
+    }
+
+    if (!this.isPlaying || this.isPaused) return;
 
     if (this.isNative) {
       try {

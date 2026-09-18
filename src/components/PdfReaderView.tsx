@@ -66,7 +66,6 @@ export const PdfReaderView: React.FC<PdfReaderViewProps> = ({
   const [showTts, setShowTts] = useState<boolean>(false);
   const [ttsSentences, setTtsSentences] = useState<string[]>([]);
   const [ttsSentenceIndex, setTtsSentenceIndex] = useState<number>(0);
-  const pdfPageTurnTimerRef = useRef<any>(null);
 
   // Metadata
   const [toc, setToc] = useState<TocItem[]>([]);
@@ -218,31 +217,9 @@ export const PdfReaderView: React.FC<PdfReaderViewProps> = ({
 
   const handlePdfSentenceChange = (idx: number) => {
     setTtsSentenceIndex(idx);
-    if (pdfPageTurnTimerRef.current) {
-      clearTimeout(pdfPageTurnTimerRef.current);
-      pdfPageTurnTimerRef.current = null;
-    }
-
-    // Predictive auto-page turn: if reading the last sentence on the current PDF page
-    if (idx >= ttsSentences.length - 1 && currentPage < totalPages) {
-      const sentenceText = ttsSentences[idx] || '';
-      const wordCount = sentenceText.trim().split(/\s+/).length;
-      const estSeconds = Math.max(1.8, wordCount / 2.5);
-      const turnDelayMs = Math.max(1000, Math.round(estSeconds * 0.72 * 1000));
-
-      pdfPageTurnTimerRef.current = setTimeout(() => {
-        if (currentPage < totalPages) {
-          goToPage(currentPage + 1);
-        }
-      }, turnDelayMs);
-    }
   };
 
   const handlePdfNextPageTts = async () => {
-    if (pdfPageTurnTimerRef.current) {
-      clearTimeout(pdfPageTurnTimerRef.current);
-      pdfPageTurnTimerRef.current = null;
-    }
     if (currentPage < totalPages) {
       const nextPageNum = currentPage + 1;
       goToPage(nextPageNum);
@@ -543,13 +520,7 @@ export const PdfReaderView: React.FC<PdfReaderViewProps> = ({
           sentences={ttsSentences}
           initialSentenceIndex={ttsSentenceIndex}
           onSentenceChange={handlePdfSentenceChange}
-          onClose={() => {
-            if (pdfPageTurnTimerRef.current) {
-              clearTimeout(pdfPageTurnTimerRef.current);
-              pdfPageTurnTimerRef.current = null;
-            }
-            setShowTts(false);
-          }}
+          onClose={() => setShowTts(false)}
           onNextChapter={handlePdfNextPageTts}
         />
       )}
