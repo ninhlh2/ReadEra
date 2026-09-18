@@ -96,6 +96,7 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
   const [ttsSentences, setTtsSentences] = useState<string[]>([]);
   const [ttsSentenceIndex, setTtsSentenceIndex] = useState<number>(0);
   const [ttsHighlightEnabled, setTtsHighlightEnabled] = useState<boolean>(true);
+  const pageTurnTimerRef = useRef<any>(null);
 
   // Load bookmarks & highlights on start
   useEffect(() => {
@@ -196,24 +197,52 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
         hr, hr.divider {
           border-color: rgba(128, 128, 128, 0.25) !important;
         }
+        /* ReadEra Signature Active Sentence Highlighting */
+        mark.readera-tts-sentence-active,
+        .readera-tts-sentence-active {
+          background-color: ${
+            currentSettings.theme === 'black' || currentSettings.theme === 'dark' || currentSettings.theme === 'nord'
+              ? 'rgba(99, 102, 241, 0.38)'
+              : currentSettings.theme === 'sepia'
+              ? 'rgba(217, 119, 6, 0.30)'
+              : currentSettings.theme === 'forest'
+              ? 'rgba(74, 222, 128, 0.32)'
+              : 'rgba(245, 158, 11, 0.35)'
+          } !important;
+          color: inherit !important;
+          border-radius: 4px !important;
+          padding: 2px 4px !important;
+          box-shadow: 0 0 0 2px ${
+            currentSettings.theme === 'black' || currentSettings.theme === 'dark' || currentSettings.theme === 'nord'
+              ? 'rgba(99, 102, 241, 0.25)'
+              : currentSettings.theme === 'sepia'
+              ? 'rgba(217, 119, 6, 0.22)'
+              : currentSettings.theme === 'forest'
+              ? 'rgba(74, 222, 128, 0.22)'
+              : 'rgba(245, 158, 11, 0.25)'
+          } !important;
+          border-bottom: 2px solid ${
+            currentSettings.theme === 'black' || currentSettings.theme === 'dark' || currentSettings.theme === 'nord'
+              ? '#818cf8'
+              : currentSettings.theme === 'sepia'
+              ? '#b45309'
+              : currentSettings.theme === 'forest'
+              ? '#4ade80'
+              : '#f59e0b'
+          } !important;
+          transition: background-color 0.2s ease, box-shadow 0.2s ease !important;
+          display: inline !important;
+        }
+
         .readera-tts-highlight {
           background-color: ${
             currentSettings.theme === 'black' || currentSettings.theme === 'dark' || currentSettings.theme === 'nord'
-              ? 'rgba(99, 102, 241, 0.45)'
-              : 'rgba(254, 240, 138, 0.65)'
+              ? 'rgba(99, 102, 241, 0.25)'
+              : 'rgba(245, 158, 11, 0.22)'
           } !important;
-          color: ${
-            currentSettings.theme === 'black' || currentSettings.theme === 'dark' || currentSettings.theme === 'nord'
-              ? '#ffffff'
-              : '#1e293b'
-          } !important;
-          border-radius: 4px !important;
-          box-shadow: 0 0 0 3px ${
-            currentSettings.theme === 'black' || currentSettings.theme === 'dark' || currentSettings.theme === 'nord'
-              ? 'rgba(99, 102, 241, 0.3)'
-              : 'rgba(254, 240, 138, 0.5)'
-          } !important;
-          transition: all 0.2s ease-in-out !important;
+          color: inherit !important;
+          border-radius: 6px !important;
+          transition: background-color 0.2s ease !important;
         }
       `;
     },
@@ -651,55 +680,160 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
     return [];
   }, []);
 
-  const cleanupTtsHighlight = useCallback(() => {
+  const cleanupTtsHighlight = useCallback((targetDoc?: Document) => {
+    if (pageTurnTimerRef.current) {
+      clearTimeout(pageTurnTimerRef.current);
+      pageTurnTimerRef.current = null;
+    }
+
     try {
-      const contents: any = renditionRef.current?.getContents();
-      const item = Array.isArray(contents) ? contents[0] : contents;
-      if (item && item.document) {
-        item.document.querySelectorAll('.readera-tts-highlight').forEach((el: any) => {
-          el.classList.remove('readera-tts-highlight');
+      const docs: Document[] = [];
+      if (targetDoc) {
+        docs.push(targetDoc);
+      } else {
+        const contents: any = renditionRef.current?.getContents();
+        const items = Array.isArray(contents) ? contents : contents ? [contents] : [];
+        for (const item of items) {
+          if (item && item.document) docs.push(item.document);
+        }
+      }
+
+      for (const doc of docs) {
+        // 1. Unwrap any <mark class="readera-tts-sentence-active"> cleanly
+        doc.querySelectorAll('mark.readera-tts-sentence-active').forEach((mark) => {
+          const parent = mark.parentNode;
+          if (parent) {
+            while (mark.firstChild) {
+              parent.insertBefore(mark.firstChild, mark);
+            }
+            parent.removeChild(mark);
+            parent.normalize();
+          }
+        });
+
+        // 2. Remove any fallback classes
+        doc.querySelectorAll('.readera-tts-sentence-active, .readera-tts-highlight').forEach((el) => {
+          el.classList.remove('readera-tts-sentence-active', 'readera-tts-highlight');
         });
       }
-    } catch {}
+    } catch (err) {
+      console.warn('Lỗi dọn dẹp highlight TTS:', err);
+    }
   }, []);
 
   const handleTtsSentenceChange = useCallback(
     (index: number, sentenceText: string) => {
       setTtsSentenceIndex(index);
+
+      // Clear any pending scheduled page turn
+      if (pageTurnTimerRef.current) {
+        clearTimeout(pageTurnTimerRef.current);
+        pageTurnTimerRef.current = null;
+      }
+
       if (!ttsHighlightEnabled || !sentenceText) return;
 
       try {
         const contents: any = renditionRef.current?.getContents();
         const item = Array.isArray(contents) ? contents[0] : contents;
-        if (item && item.document && item.document.body) {
-          const doc = item.document;
-          doc.querySelectorAll('.readera-tts-highlight').forEach((el: any) => {
-            el.classList.remove('readera-tts-highlight');
-          });
+        if (!item || !item.document || !item.document.body) return;
 
-          const snippet = sentenceText.slice(0, Math.min(30, sentenceText.length)).trim();
-          if (!snippet) return;
+        const doc: Document = item.document;
+        cleanupTtsHighlight(doc);
 
-          const candidates = doc.body.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote, div');
-          for (const el of candidates) {
-            if (el.textContent && el.textContent.includes(snippet)) {
-              el.classList.add('readera-tts-highlight');
-              el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+        const clean = sentenceText.trim();
+        if (!clean) return;
 
-              const rect = el.getBoundingClientRect();
-              const viewWidth = doc.defaultView?.innerWidth || window.innerWidth;
-              if (rect.left >= viewWidth) {
-                renditionRef.current?.next();
+        // Search key: normalized first 30 chars
+        const searchSnippet = clean.slice(0, Math.min(30, clean.length)).trim();
+        if (!searchSnippet) return;
+
+        let activeEl: HTMLElement | null = null;
+
+        // Strategy A: Walk text nodes to isolate and wrap ONLY the active sentence in a <mark>
+        const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT, null);
+        let node: Node | null;
+
+        while ((node = walker.nextNode())) {
+          const text = node.textContent || '';
+          const idx = text.indexOf(searchSnippet);
+          if (idx !== -1) {
+            try {
+              const range = doc.createRange();
+              const matchLen = Math.min(clean.length, text.length - idx);
+              range.setStart(node, idx);
+              range.setEnd(node, idx + matchLen);
+
+              const mark = doc.createElement('mark');
+              mark.className = 'readera-tts-sentence-active';
+              range.surroundContents(mark);
+              activeEl = mark;
+              break;
+            } catch {
+              const parent = node.parentElement;
+              if (parent) {
+                parent.classList.add('readera-tts-sentence-active');
+                activeEl = parent;
+                break;
               }
+            }
+          }
+        }
+
+        // Strategy B: Fallback to closest block element containing snippet
+        if (!activeEl) {
+          const candidates = doc.body.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote');
+          for (const el of candidates) {
+            if (el.textContent && el.textContent.includes(searchSnippet)) {
+              el.classList.add('readera-tts-sentence-active');
+              activeEl = el as HTMLElement;
               break;
             }
+          }
+        }
+
+        if (activeEl) {
+          const viewWidth = doc.defaultView?.innerWidth || window.innerWidth;
+          const viewHeight = doc.defaultView?.innerHeight || window.innerHeight;
+          const rect = activeEl.getBoundingClientRect();
+          const isPaginated = settings.flow !== 'scrolled-doc';
+
+          if (isPaginated) {
+            // Check if sentence is off-screen (already on next page)
+            if (rect.left >= viewWidth - 30) {
+              renditionRef.current?.next();
+            } else if (rect.left < -10) {
+              renditionRef.current?.prev();
+            } else {
+              // Predictive auto-page turn: sentence is near bottom/end of the current page
+              const isNearPageEnd =
+                rect.right >= viewWidth - 40 ||
+                rect.left > viewWidth * 0.72 ||
+                rect.bottom > viewHeight * 0.78;
+
+              if (isNearPageEnd) {
+                const wordCount = clean.split(/\s+/).length;
+                const estSeconds = Math.max(1.8, wordCount / 2.5);
+                // Automatically turn page when ~70% through this sentence
+                const turnDelayMs = Math.max(1000, Math.round(estSeconds * 0.70 * 1000));
+
+                pageTurnTimerRef.current = setTimeout(() => {
+                  if (renditionRef.current) {
+                    renditionRef.current.next();
+                  }
+                }, turnDelayMs);
+              }
+            }
+          } else {
+            // Scrolled-doc: smooth scrolling to center of screen
+            activeEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
           }
         }
       } catch (err) {
         console.warn('Lỗi highlight câu TTS:', err);
       }
     },
-    [ttsHighlightEnabled]
+    [ttsHighlightEnabled, cleanupTtsHighlight, settings.flow]
   );
 
   // Start TTS
