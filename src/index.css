@@ -1216,9 +1216,35 @@ button:disabled {
   background: var(--bg-hover, rgba(255, 255, 255, 0.08));
 }
 
+.readera-tts-icon-btn.btn-locate {
+  color: var(--color-primary, #6366f1);
+}
+
+.readera-tts-icon-btn.btn-locate:hover {
+  color: #ffffff;
+  background: var(--color-primary, #6366f1);
+  transform: scale(1.08);
+}
+
+.readera-tts-icon-btn.btn-locate:active {
+  transform: scale(0.92);
+}
+
 .readera-tts-icon-btn.btn-close:hover {
   color: #ef4444;
   background: rgba(239, 68, 68, 0.15);
+}
+
+.readera-tts-info-section.clickable {
+  cursor: pointer;
+  border-radius: 12px;
+  padding: 3px 6px;
+  margin: -3px -6px;
+  transition: background 0.18s ease;
+}
+
+.readera-tts-info-section.clickable:hover {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.08));
 }
 
 /* TTS Settings Modal Sheet */

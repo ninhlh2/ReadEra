@@ -12,6 +12,7 @@ import {
   Mic,
   ChevronDown,
   Sparkles,
+  LocateFixed,
 } from 'lucide-react';
 import { ttsService } from '../services/ttsService';
 import type { TtsVoice, SleepTimerMode, TtsPauseMode } from '../services/ttsService';
@@ -28,6 +29,7 @@ interface TtsPlayerProps {
   onNextChapter?: () => void;
   onPrevChapter?: () => void;
   onPlayResume?: () => Promise<void> | void;
+  onLocateSentence?: () => void;
 }
 
 export const TtsPlayer: React.FC<TtsPlayerProps> = ({
@@ -41,6 +43,7 @@ export const TtsPlayer: React.FC<TtsPlayerProps> = ({
   onClose,
   onNextChapter,
   onPlayResume,
+  onLocateSentence,
 }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -206,7 +209,11 @@ export const TtsPlayer: React.FC<TtsPlayerProps> = ({
 
         <div className="readera-tts-main-row">
           {/* Left: Info & State */}
-          <div className="readera-tts-info-section">
+          <div
+            className={`readera-tts-info-section ${onLocateSentence ? 'clickable' : ''}`}
+            onClick={onLocateSentence}
+            title={onLocateSentence ? 'Bấm để tới vị trí đang đọc' : undefined}
+          >
             <div className="readera-tts-icon-wrap">
               <Volume2
                 size={20}
@@ -277,6 +284,18 @@ export const TtsPlayer: React.FC<TtsPlayerProps> = ({
               <FastForward size={13} />
               <span>{rate.toFixed(1)}x</span>
             </button>
+
+            {/* Locate reading position */}
+            {onLocateSentence && (
+              <button
+                className="readera-tts-icon-btn btn-locate"
+                onClick={onLocateSentence}
+                title="Tới vị trí đang đọc"
+                aria-label="Tới vị trí đang đọc"
+              >
+                <LocateFixed size={18} />
+              </button>
+            )}
 
             {/* Settings Modal Toggle */}
             <button

@@ -99,6 +99,8 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
   const lastTtsIndexRef = useRef<number>(0);
   const ttsDisplayingRef = useRef<boolean>(false);
   const currentLocationRef = useRef<any>(null);
+  const currentTtsCfiRef = useRef<string | null>(null);
+  const currentTtsSectionHrefRef = useRef<string | null>(null);
 
   // Load bookmarks & highlights on start
   useEffect(() => {
@@ -239,6 +241,24 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
           } !important;
           transition: background-color 0.2s ease, box-shadow 0.2s ease !important;
           display: inline !important;
+        }
+
+        @keyframes ttsSentenceLocatePulse {
+          0% {
+            box-shadow: 0 0 0 0 ${themeColors.link}, 0 0 16px ${themeColors.link} !important;
+            transform: scale(1);
+          }
+          40% {
+            box-shadow: 0 0 0 8px rgba(99, 102, 241, 0.2), 0 0 24px ${themeColors.link} !important;
+            transform: scale(1.03);
+          }
+          100% {
+            box-shadow: 0 0 0 0 rgba(99, 102, 241, 0) !important;
+            transform: scale(1);
+          }
+        }
+        .readera-tts-sentence-locate-pulse {
+          animation: ttsSentenceLocatePulse 1.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
         }
 
         .readera-tts-highlight {
@@ -967,10 +987,11 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
       sentenceText: string,
       isMovingForward: boolean,
       isPaginated: boolean,
-      item?: any
+      item?: any,
+      forceLocate: boolean = false
     ): 'next' | 'prev' | 'none' | { cfi: string } => {
       cleanupTtsHighlight(doc);
-      if (!ttsHighlightEnabled) return 'none';
+      if (!ttsHighlightEnabled && !forceLocate) return 'none';
 
       const clean = sentenceText.trim();
       if (!clean) return 'none';
@@ -1046,7 +1067,9 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
               const isNextPage = relLeft >= viewWidth - 25;
               const isPrevPage = relRight <= 15;
 
-              if (isCurrentPage) {
+              if (forceLocate) {
+                score = isCurrentPage ? 1000 : 600;
+              } else if (isCurrentPage) {
                 score = 1000;
               } else if (isNextPage) {
                 score = isMovingForward ? 700 : 200;
@@ -1094,6 +1117,22 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
             parent.classList.add('readera-tts-sentence-active');
             activeEl = parent;
             targetRect = best.rect;
+          }
+        }
+
+        if (item) {
+          try {
+            const cfi = item.cfiFromRange
+              ? item.cfiFromRange(highlightRange)
+              : item.cfiFromNode
+              ? item.cfiFromNode(activeEl)
+              : null;
+            if (cfi) {
+              currentTtsCfiRef.current = cfi;
+            }
+          } catch {}
+          if (item.section?.href) {
+            currentTtsSectionHrefRef.current = item.section.href;
           }
         }
       } else {
@@ -1187,6 +1226,10 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
         const action = highlightSentenceAndDetermineTurn(doc, sentenceText, isMovingForward, isPaginated, item);
 
         if (action && typeof action === 'object' && 'cfi' in action && renditionRef.current) {
+          currentTtsCfiRef.current = action.cfi;
+          if (item?.section?.href) {
+            currentTtsSectionHrefRef.current = item.section.href;
+          }
           // Navigate to exact CFI (precise page/position navigation via epubjs)
           await renditionRef.current.display(action.cfi);
           await new Promise((r) => setTimeout(r, 80));
@@ -1333,6 +1376,62 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
       }
     }
   }, [extractCurrentDocSentences, ttsSentences, findCurrentVisibleSentenceIndex, prepareSentenceDisplay]);
+
+  // Navigate directly to the currently reading sentence in the book
+  const handleLocateCurrentTtsSentence = useCallback(async () => {
+    const currentIdx = ttsService.getCurrentIndex() >= 0 ? ttsService.getCurrentIndex() : ttsSentenceIndex;
+    const sentenceText = ttsSentences[currentIdx] || ttsSentences[ttsSentenceIndex];
+
+    try {
+      // 1. If we have a stored CFI for the currently reading sentence, jump straight to it
+      if (currentTtsCfiRef.current && renditionRef.current) {
+        await renditionRef.current.display(currentTtsCfiRef.current);
+        await new Promise((r) => setTimeout(r, 100));
+      } else if (currentTtsSectionHrefRef.current && renditionRef.current) {
+        await renditionRef.current.display(currentTtsSectionHrefRef.current);
+        await new Promise((r) => setTimeout(r, 100));
+      }
+
+      // 2. Locate, highlight and scroll/turn to sentence
+      const contents: any = renditionRef.current?.getContents();
+      const item = Array.isArray(contents) ? contents[0] : contents;
+      if (item?.document && item.document.body && sentenceText) {
+        const isPaginated = settings.flow !== 'scrolled-doc';
+        const action = highlightSentenceAndDetermineTurn(
+          item.document,
+          sentenceText,
+          true,
+          isPaginated,
+          item,
+          true // forceLocate: always highlight & prioritize locating sentence
+        );
+
+        if (action && typeof action === 'object' && 'cfi' in action && renditionRef.current) {
+          currentTtsCfiRef.current = action.cfi;
+          await renditionRef.current.display(action.cfi);
+          await new Promise((r) => setTimeout(r, 100));
+          const newContents: any = renditionRef.current?.getContents();
+          const newItem = Array.isArray(newContents) ? newContents[0] : newContents;
+          if (newItem?.document) {
+            highlightSentenceAndDetermineTurn(newItem.document, sentenceText, true, isPaginated, newItem, true);
+          }
+        }
+
+        // Apply brief attention pulse animation to the active sentence
+        const activeMark = item.document.querySelector('.readera-tts-sentence-active');
+        if (activeMark) {
+          activeMark.classList.remove('readera-tts-sentence-locate-pulse');
+          void (activeMark as HTMLElement).offsetWidth; // force reflow
+          activeMark.classList.add('readera-tts-sentence-locate-pulse');
+          if (!isPaginated) {
+            (activeMark as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[TTS] Lỗi chuyển tới vị trí đang đọc:', err);
+    }
+  }, [ttsSentences, ttsSentenceIndex, settings.flow, highlightSentenceAndDetermineTurn]);
 
 
   const handleTtsNextChapter = () => {
@@ -1662,9 +1761,12 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
           onClose={() => {
             setShowTts(false);
             cleanupTtsHighlight();
+            currentTtsCfiRef.current = null;
+            currentTtsSectionHrefRef.current = null;
           }}
           onNextChapter={handleTtsNextChapter}
           onPlayResume={handleTtsPlayResume}
+          onLocateSentence={handleLocateCurrentTtsSentence}
         />
       )}
 
